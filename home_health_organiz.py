@@ -1,28 +1,23 @@
-# streamlit_app.py
 import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 
 # -----------------------------
-# Safe rerun helper
+# SAFE RERUN
 # -----------------------------
 def safe_rerun():
     try:
         st.rerun()
-    except AttributeError:
-        try:
-            st.experimental_rerun()
-        except AttributeError:
-            pass
+    except:
+        st.experimental_rerun()
 
 # -----------------------------
-# Database Setup
+# DB SETUP
 # -----------------------------
 conn = sqlite3.connect("patients.db", check_same_thread=False)
 c = conn.cursor()
 
-# Patients table with archived column
 c.execute("""
 CREATE TABLE IF NOT EXISTS patients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +32,6 @@ CREATE TABLE IF NOT EXISTS patients (
 )
 """)
 
-# Notes table
 c.execute("""
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +41,6 @@ CREATE TABLE IF NOT EXISTS notes (
 )
 """)
 
-# Audit log table
 c.execute("""
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,173 +54,221 @@ CREATE TABLE IF NOT EXISTS audit_log (
 conn.commit()
 
 # -----------------------------
-# Helper Functions
+# HELPERS
 # -----------------------------
-def log_action(patient_id, action, details=""):
+def log_action(pid, action, details=""):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     c.execute("""
         INSERT INTO audit_log (patient_id, action, details, created_at)
         VALUES (?, ?, ?, ?)
-    """, (patient_id, action, details, now))
+    """, (pid, action, details, now))
     conn.commit()
 
-def is_overdue(last_updated):
-    if not last_updated:
+def is_overdue(ts):
+    if not ts:
         return True
-    last_time = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S")
-    return datetime.now() - last_time > timedelta(hours=2)
+    return datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") > timedelta(hours=2)
 
-def load_patients(active=True):
-    """Load patients. If active=True, return non-archived."""
-    status = 0 if active else 1
+def load_patients(archived=0):
     return pd.read_sql_query(
         "SELECT * FROM patients WHERE home_health=1 AND archived=?",
         conn,
-        params=(status,)
+        params=(archived,)
     )
 
-def load_notes(patient_id):
+def load_notes(pid):
     return pd.read_sql_query(
         "SELECT * FROM notes WHERE patient_id=? ORDER BY created_at DESC",
         conn,
-        params=(patient_id,)
+        params=(pid,)
     )
 
-def get_overdue_count(patients_df):
-    return sum(is_overdue(p) for p in patients_df["last_updated"])
-
-def archive_patient(patient_id):
-    c.execute("UPDATE patients SET archived=1 WHERE id=?", (patient_id,))
+def archive_patient(pid):
+    c.execute("UPDATE patients SET archived=1 WHERE id=?", (pid,))
     conn.commit()
-    log_action(patient_id, "ARCHIVE_PATIENT", f"Patient ID {patient_id} archived")
+    log_action(pid, "ARCHIVE", "Patient archived")
     safe_rerun()
 
-def restore_patient(patient_id):
-    c.execute("UPDATE patients SET archived=0 WHERE id=?", (patient_id,))
+def restore_patient(pid):
+    c.execute("UPDATE patients SET archived=0 WHERE id=?", (pid,))
     conn.commit()
-    log_action(patient_id, "RESTORE_PATIENT", f"Patient ID {patient_id} restored")
+    log_action(pid, "RESTORE", "Patient restored")
+    safe_rerun()
+
+def delete_patient(pid):
+    c.execute("DELETE FROM notes WHERE patient_id=?", (pid,))
+    c.execute("DELETE FROM patients WHERE id=?", (pid,))
+    conn.commit()
+    log_action(pid, "DELETE", "Patient permanently deleted")
     safe_rerun()
 
 # -----------------------------
-# Streamlit App
+# UI
 # -----------------------------
 st.set_page_config(layout="wide")
-st.title("🏠 Home Health Patient Tracker")
+st.title("🏠 Home Health Tracker")
 
 # -----------------------------
-# Add New Patient Form (Sidebar)
+# SESSION STATE
 # -----------------------------
-st.sidebar.header("➕ Add New Patient")
-with st.sidebar.form("add_patient_form"):
-    first_name = st.text_input("First Name")
-    last_name = st.text_input("Last Name")
-    mrn = st.text_input("MRN #")
-    insurance = st.text_input("Insurance")
+if "selected_patient_id" not in st.session_state:
+    st.session_state.selected_patient_id = None
+
+# -----------------------------
+# ADD PATIENT
+# -----------------------------
+st.sidebar.header("➕ Add Patient")
+with st.sidebar.form("add"):
+    fn = st.text_input("First Name")
+    ln = st.text_input("Last Name")
+    mrn = st.text_input("MRN")
+    ins = st.text_input("Insurance")
     city = st.text_input("City")
-    submitted = st.form_submit_button("Add Patient")
+    submit = st.form_submit_button("Add")
 
-    if submitted:
+    if submit:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
-            INSERT INTO patients 
-            (first_name, last_name, mrn, insurance, city, home_health, last_updated, archived)
-            VALUES (?, ?, ?, ?, ?, 1, ?, 0)
-        """, (first_name, last_name, mrn, insurance, city, now))
+            INSERT INTO patients
+            (first_name,last_name,mrn,insurance,city,home_health,last_updated,archived)
+            VALUES (?,?,?,?,?,?,?,0)
+        """, (fn, ln, mrn, ins, city, 1, now))
         conn.commit()
-        log_action(None, "CREATE_PATIENT", f"{first_name} {last_name} MRN:{mrn}")
+        log_action(None, "CREATE", f"{fn} {ln}")
         safe_rerun()
 
 # -----------------------------
-# Tabs: Active Patients / Archived Patients
+# TABS
 # -----------------------------
-tab_active, tab_archive = st.tabs(["🏠 Active Patients", "📦 Archived Patients"])
+tab1, tab2 = st.tabs(["Active Patients", "Archive"])
 
 # -----------------------------
-# Active Patients Tab
+# ACTIVE
 # -----------------------------
-with tab_active:
-    patients = load_patients(active=True)
+with tab1:
+    patients = load_patients(0)
 
-    search = st.text_input("🔍 Search active patients (name, MRN, city)").lower()
-    if search:
-        patients = patients[
-            patients["first_name"].str.lower().str.contains(search) |
-            patients["last_name"].str.lower().str.contains(search) |
-            patients["mrn"].str.lower().str.contains(search) |
-            patients["city"].str.lower().str.contains(search)
-        ]
-
-    overdue_count = get_overdue_count(patients)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Home Health", len(patients))
-    col2.metric("Overdue Patients", overdue_count)
-    col3.metric("Up to Date", len(patients) - overdue_count)
-
-    st.markdown("---")
-
-    if "selected_patient_id" not in st.session_state:
-        st.session_state["selected_patient_id"] = None
+    st.subheader("Active Patients")
 
     cols = st.columns(3)
+
     for i, p in patients.iterrows():
         overdue = is_overdue(p["last_updated"])
         color = "#ffd6d6" if overdue else "#d9f7d9"
-        card_id = f"patient_{p['id']}"
-        confirm_key = f"confirm_archive_{p['id']}"
 
         with cols[i % 3]:
-            if st.button(label=f"Select {p['first_name']} {p['last_name']}", key=card_id):
-                st.session_state["selected_patient_id"] = p["id"]
+
+            if st.button(f"Open {p['first_name']} {p['last_name']}", key=f"open_{p['id']}"):
+                st.session_state.selected_patient_id = p["id"]
                 safe_rerun()
 
             st.markdown(f"""
-            <div style="
-                border-radius:12px;
-                padding:15px;
-                margin-top:-10px;
-                margin-bottom:10px;
-                background-color:{color};
-                box-shadow:0 2px 8px rgba(0,0,0,0.1);
-                cursor:pointer;
-            ">
-                <h4 style="margin-bottom:5px;">{p['first_name']} {p['last_name']}</h4>
-                <p><b>MRN:</b> {p['mrn']}</p>
-                <p><b>Insurance:</b> {p['insurance']}</p>
-                <p><b>City:</b> {p['city']}</p>
-                <p><b>Last Update:</b> {p['last_updated']}</p>
-                {"<p style='color:red;font-weight:bold;'>⚠ OVERDUE</p>" if overdue else ""}
+            <div style="padding:12px;border-radius:10px;background:{color};margin-bottom:10px">
+                <b>{p['first_name']} {p['last_name']}</b><br>
+                MRN: {p['mrn']}<br>
+                Insurance: {p['insurance']}<br>
+                City: {p['city']}<br>
+                Last: {p['last_updated']}
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("🗄️ Archive", key=f"archive_{p['id']}"):
-                st.session_state[confirm_key] = True
-
-            if st.session_state.get(confirm_key):
-                st.warning(f"⚠ Are you sure you want to archive {p['first_name']} {p['last_name']}?")
-                col_yes, col_no = st.columns([1, 1])
-                if col_yes.button("✅ Yes", key=f"yes_{p['id']}"):
-                    archive_patient(p["id"])
-                    st.session_state[confirm_key] = False
-                if col_no.button("❌ No", key=f"no_{p['id']}"):
-                    st.session_state[confirm_key] = False
+            # ARCHIVE BUTTON
+            if st.button("📦 Archive", key=f"arc_{p['id']}"):
+                archive_patient(p["id"])
 
 # -----------------------------
-# Archived Patients Tab
+# ARCHIVE
 # -----------------------------
-with tab_archive:
-    archived_patients = load_patients(active=False)
-    st.markdown("### 📦 Archived Patients")
-    if archived_patients.empty:
+with tab2:
+    archived = load_patients(1)
+
+    st.subheader("Archived Patients")
+
+    if archived.empty:
         st.info("No archived patients.")
     else:
-        for _, p in archived_patients.iterrows():
-            col1, col2, col3 = st.columns([3, 1, 1])
-            col1.write(f"**{p['first_name']} {p['last_name']}** — MRN: {p['mrn']}")
-            if col2.button("♻ Restore", key=f"restore_{p['id']}"):
-                restore_patient(p['id'])
-            if col3.button("🗑️ Delete", key=f"del_archived_{p['id']}"):
-                archive_key = f"confirm_delete_archived_{p['id']}"
-                st.session_state[archive_key] = True
-            if st.session_state.get(f"confirm_delete_archived_{p['id']}"):
-                st.warning(f"⚠ Permanently delete {p['first_name']} {p['last_name']}?")
-                col_yes, col_no = st.columns([1
+        for _, p in archived.iterrows():
+            col1, col2, col3 = st.columns([3,1,1])
+
+            col1.write(f"{p['first_name']} {p['last_name']}")
+
+            if col2.button("♻ Restore", key=f"res_{p['id']}"):
+                restore_patient(p["id"])
+
+            if col3.button("🗑️ Delete", key=f"del_{p['id']}"):
+                st.warning("Confirm permanent delete below")
+
+                c1, c2 = st.columns([1,1])
+
+                if c1.button("YES", key=f"yes_{p['id']}"):
+                    delete_patient(p["id"])
+
+                if c2.button("NO", key=f"no_{p['id']}"):
+                    st.info("Cancelled")
+
+# -----------------------------
+# WORKSPACE
+# -----------------------------
+pid = st.session_state.selected_patient_id
+
+if pid:
+    patient = patients[patients["id"] == pid]
+
+    if not patient.empty:
+        p = patient.iloc[0]
+
+        st.markdown("---")
+        st.subheader(f"{p['first_name']} {p['last_name']}")
+
+        st.write("MRN:", p["mrn"])
+        st.write("Insurance:", p["insurance"])
+        st.write("City:", p["city"])
+
+        if st.button("📦 Archive Patient"):
+            archive_patient(pid)
+
+        if st.button("🗑️ Delete Patient"):
+            delete_patient(pid)
+
+        st.markdown("### Notes")
+        notes = load_notes(pid)
+
+        for _, n in notes.iterrows():
+            c1, c2 = st.columns([6,1])
+            c1.write(n["note"])
+            if c2.button("🗑️", key=f"n_{n['id']}"):
+                c.execute("DELETE FROM notes WHERE id=?", (n["id"],))
+                conn.commit()
+                log_action(pid, "DELETE_NOTE", "")
+                safe_rerun()
+
+        new_note = st.text_area("Add note")
+        if st.button("Add Note"):
+            if new_note.strip():
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                c.execute(
+                    "INSERT INTO notes (patient_id,note,created_at) VALUES (?,?,?)",
+                    (pid, new_note, now)
+                )
+
+                c.execute(
+                    "UPDATE patients SET last_updated=? WHERE id=?",
+                    (now, pid)
+                )
+
+                conn.commit()
+                log_action(pid, "ADD_NOTE", new_note)
+                safe_rerun()
+
+# -----------------------------
+# AUDIT LOG
+# -----------------------------
+st.sidebar.header("Audit Log")
+
+audit = pd.read_sql_query(
+    "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 20",
+    conn
+)
+
+st.sidebar.dataframe(audit)
