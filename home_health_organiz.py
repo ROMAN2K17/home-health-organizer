@@ -90,9 +90,7 @@ def get_overdue_count(patients_df):
     return sum(is_overdue(p) for p in patients_df["last_updated"])
 
 def delete_patient(patient_id):
-    # Delete notes
     c.execute("DELETE FROM notes WHERE patient_id = ?", (patient_id,))
-    # Delete patient
     c.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
     conn.commit()
     log_action(patient_id, "DELETE_PATIENT", f"Patient ID {patient_id} deleted")
@@ -159,10 +157,9 @@ if "selected_patient_id" not in st.session_state:
     st.session_state["selected_patient_id"] = None
 
 # -----------------------------
-# Card-Based Layout (FULL CLICKABLE CARDS)
+# Card-Based Layout (Clickable)
 # -----------------------------
 st.markdown("## 🏠 Home Health Patients")
-
 cols = st.columns(3)
 
 for i, p in patients.iterrows():
@@ -216,7 +213,6 @@ for i, p in patients.iterrows():
 selected_id = st.session_state.get("selected_patient_id")
 if selected_id:
     patient_rows = patients[patients["id"] == selected_id]
-
     if not patient_rows.empty:
         patient = patient_rows.iloc[0]
         st.markdown("---")
@@ -252,4 +248,5 @@ if selected_id:
         # Add new note
         new_note = st.text_area("Add a new note", key=f"note_box_{selected_id}")
         if st.button("➕ Add Note", key=f"add_note_{selected_id}"):
-            if new
+            if new_note.strip():
+                now = datetime
