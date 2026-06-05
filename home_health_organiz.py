@@ -22,7 +22,7 @@ def safe_rerun():
 conn = sqlite3.connect("patients.db", check_same_thread=False)
 c = conn.cursor()
 
-# Patients table
+# Patients table with archived column
 c.execute("""
 CREATE TABLE IF NOT EXISTS patients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS patients (
     insurance TEXT,
     city TEXT,
     home_health INTEGER,
-    last_updated TEXT
+    last_updated TEXT,
+    archived INTEGER DEFAULT 0
 )
 """)
 
@@ -76,12 +77,18 @@ def is_overdue(last_updated):
     last_time = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S")
     return datetime.now() - last_time > timedelta(hours=2)
 
-def load_patients():
-    return pd.read_sql_query("SELECT * FROM patients WHERE home_health = 1", conn)
+def load_patients(active=True):
+    """Load patients. If active=True, return non-archived."""
+    status = 0 if active else 1
+    return pd.read_sql_query(
+        "SELECT * FROM patients WHERE home_health=1 AND archived=?",
+        conn,
+        params=(status,)
+    )
 
 def load_notes(patient_id):
     return pd.read_sql_query(
-        "SELECT * FROM notes WHERE patient_id = ? ORDER BY created_at DESC",
+        "SELECT * FROM notes WHERE patient_id=? ORDER BY created_at DESC",
         conn,
         params=(patient_id,)
     )
@@ -89,11 +96,16 @@ def load_notes(patient_id):
 def get_overdue_count(patients_df):
     return sum(is_overdue(p) for p in patients_df["last_updated"])
 
-def delete_patient(patient_id):
-    c.execute("DELETE FROM notes WHERE patient_id = ?", (patient_id,))
-    c.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
+def archive_patient(patient_id):
+    c.execute("UPDATE patients SET archived=1 WHERE id=?", (patient_id,))
     conn.commit()
-    log_action(patient_id, "DELETE_PATIENT", f"Patient ID {patient_id} deleted")
+    log_action(patient_id, "ARCHIVE_PATIENT", f"Patient ID {patient_id} archived")
+    safe_rerun()
+
+def restore_patient(patient_id):
+    c.execute("UPDATE patients SET archived=0 WHERE id=?", (patient_id,))
+    conn.commit()
+    log_action(patient_id, "RESTORE_PATIENT", f"Patient ID {patient_id} restored")
     safe_rerun()
 
 # -----------------------------
@@ -118,135 +130,104 @@ with st.sidebar.form("add_patient_form"):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
             INSERT INTO patients 
-            (first_name, last_name, mrn, insurance, city, home_health, last_updated)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
+            (first_name, last_name, mrn, insurance, city, home_health, last_updated, archived)
+            VALUES (?, ?, ?, ?, ?, 1, ?, 0)
         """, (first_name, last_name, mrn, insurance, city, now))
         conn.commit()
         log_action(None, "CREATE_PATIENT", f"{first_name} {last_name} MRN:{mrn}")
         safe_rerun()
 
 # -----------------------------
-# Load and Search Patients
+# Tabs: Active Patients / Archived Patients
 # -----------------------------
-patients = load_patients()
-
-search = st.text_input("🔍 Search patients (name, MRN, city)").lower()
-if search:
-    patients = patients[
-        patients["first_name"].str.lower().str.contains(search) |
-        patients["last_name"].str.lower().str.contains(search) |
-        patients["mrn"].str.lower().str.contains(search) |
-        patients["city"].str.lower().str.contains(search)
-    ]
+tab_active, tab_archive = st.tabs(["🏠 Active Patients", "📦 Archived Patients"])
 
 # -----------------------------
-# Dashboard Metrics
+# Active Patients Tab
 # -----------------------------
-overdue_count = get_overdue_count(patients)
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Home Health", len(patients))
-col2.metric("Overdue Patients", overdue_count)
-col3.metric("Up to Date", len(patients) - overdue_count)
+with tab_active:
+    patients = load_patients(active=True)
 
-st.markdown("---")
+    search = st.text_input("🔍 Search active patients (name, MRN, city)").lower()
+    if search:
+        patients = patients[
+            patients["first_name"].str.lower().str.contains(search) |
+            patients["last_name"].str.lower().str.contains(search) |
+            patients["mrn"].str.lower().str.contains(search) |
+            patients["city"].str.lower().str.contains(search)
+        ]
 
-# -----------------------------
-# Patient Selection State
-# -----------------------------
-if "selected_patient_id" not in st.session_state:
-    st.session_state["selected_patient_id"] = None
+    overdue_count = get_overdue_count(patients)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Home Health", len(patients))
+    col2.metric("Overdue Patients", overdue_count)
+    col3.metric("Up to Date", len(patients) - overdue_count)
 
-# -----------------------------
-# Card-Based Layout (Clickable)
-# -----------------------------
-st.markdown("## 🏠 Home Health Patients")
-cols = st.columns(3)
+    st.markdown("---")
 
-for i, p in patients.iterrows():
-    overdue = is_overdue(p["last_updated"])
-    color = "#ffd6d6" if overdue else "#d9f7d9"
-    card_id = f"patient_{p['id']}"
-    confirm_key = f"confirm_delete_{p['id']}"
+    if "selected_patient_id" not in st.session_state:
+        st.session_state["selected_patient_id"] = None
 
-    with cols[i % 3]:
-        # Invisible button to select patient
-        if st.button(label=f"Select {p['first_name']} {p['last_name']}", key=card_id):
-            st.session_state["selected_patient_id"] = p["id"]
-            safe_rerun()
+    cols = st.columns(3)
+    for i, p in patients.iterrows():
+        overdue = is_overdue(p["last_updated"])
+        color = "#ffd6d6" if overdue else "#d9f7d9"
+        card_id = f"patient_{p['id']}"
+        confirm_key = f"confirm_archive_{p['id']}"
 
-        # Visual card
-        st.markdown(f"""
-        <div style="
-            border-radius:12px;
-            padding:15px;
-            margin-top:-10px;
-            margin-bottom:10px;
-            background-color:{color};
-            box-shadow:0 2px 8px rgba(0,0,0,0.1);
-            cursor:pointer;
-        ">
-            <h4 style="margin-bottom:5px;">{p['first_name']} {p['last_name']}</h4>
-            <p><b>MRN:</b> {p['mrn']}</p>
-            <p><b>Insurance:</b> {p['insurance']}</p>
-            <p><b>City:</b> {p['city']}</p>
-            <p><b>Last Update:</b> {p['last_updated']}</p>
-            {"<p style='color:red;font-weight:bold;'>⚠ OVERDUE</p>" if overdue else ""}
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Delete patient button with confirmation
-        if st.button("🗑️ Delete", key=f"del_{p['id']}"):
-            st.session_state[confirm_key] = True
-
-        if st.session_state.get(confirm_key):
-            st.warning(f"⚠ Are you sure you want to delete {p['first_name']} {p['last_name']}?")
-            col_yes, col_no = st.columns([1, 1])
-            if col_yes.button("✅ Yes", key=f"yes_{p['id']}"):
-                delete_patient(p["id"])
-                st.session_state[confirm_key] = False
-            if col_no.button("❌ No", key=f"no_{p['id']}"):
-                st.session_state[confirm_key] = False
-
-# -----------------------------
-# Selected Patient Workspace
-# -----------------------------
-selected_id = st.session_state.get("selected_patient_id")
-if selected_id:
-    patient_rows = patients[patients["id"] == selected_id]
-    if not patient_rows.empty:
-        patient = patient_rows.iloc[0]
-        st.markdown("---")
-        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
-
-        if is_overdue(patient["last_updated"]):
-            st.error("⚠️ OVERDUE: No update in over 2 hours")
-        else:
-            st.success("✅ Up to date")
-
-        st.write(f"**MRN:** {patient['mrn']}")
-        st.write(f"**Insurance:** {patient['insurance']}")
-        st.write(f"**City:** {patient['city']}")
-        st.write(f"**Last Updated:** {patient['last_updated']}")
-
-        # -----------------------------
-        # Notes Section
-        # -----------------------------
-        st.markdown("### 📝 Notes")
-        notes = load_notes(selected_id)
-        if notes.empty:
-            st.info("No notes yet.")
-
-        for _, n in notes.iterrows():
-            col1, col2 = st.columns([6, 1])
-            col1.write(f"**{n['created_at']}** — {n['note']}")
-            if col2.button("🗑️", key=f"delete_note_{n['id']}"):
-                c.execute("DELETE FROM notes WHERE id = ?", (n["id"],))
-                conn.commit()
-                log_action(selected_id, "DELETE_NOTE", f"Note ID {n['id']}")
+        with cols[i % 3]:
+            if st.button(label=f"Select {p['first_name']} {p['last_name']}", key=card_id):
+                st.session_state["selected_patient_id"] = p["id"]
                 safe_rerun()
 
-        # Add new note
-        new_note = st.text_area("Add a new note", key=f"note_box_{selected_id}")
-        if st.button("➕ Add Note", key=f"add_note_{selected_id}"):
-            if new_note.strip():
-                now = datetime
+            st.markdown(f"""
+            <div style="
+                border-radius:12px;
+                padding:15px;
+                margin-top:-10px;
+                margin-bottom:10px;
+                background-color:{color};
+                box-shadow:0 2px 8px rgba(0,0,0,0.1);
+                cursor:pointer;
+            ">
+                <h4 style="margin-bottom:5px;">{p['first_name']} {p['last_name']}</h4>
+                <p><b>MRN:</b> {p['mrn']}</p>
+                <p><b>Insurance:</b> {p['insurance']}</p>
+                <p><b>City:</b> {p['city']}</p>
+                <p><b>Last Update:</b> {p['last_updated']}</p>
+                {"<p style='color:red;font-weight:bold;'>⚠ OVERDUE</p>" if overdue else ""}
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("🗄️ Archive", key=f"archive_{p['id']}"):
+                st.session_state[confirm_key] = True
+
+            if st.session_state.get(confirm_key):
+                st.warning(f"⚠ Are you sure you want to archive {p['first_name']} {p['last_name']}?")
+                col_yes, col_no = st.columns([1, 1])
+                if col_yes.button("✅ Yes", key=f"yes_{p['id']}"):
+                    archive_patient(p["id"])
+                    st.session_state[confirm_key] = False
+                if col_no.button("❌ No", key=f"no_{p['id']}"):
+                    st.session_state[confirm_key] = False
+
+# -----------------------------
+# Archived Patients Tab
+# -----------------------------
+with tab_archive:
+    archived_patients = load_patients(active=False)
+    st.markdown("### 📦 Archived Patients")
+    if archived_patients.empty:
+        st.info("No archived patients.")
+    else:
+        for _, p in archived_patients.iterrows():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            col1.write(f"**{p['first_name']} {p['last_name']}** — MRN: {p['mrn']}")
+            if col2.button("♻ Restore", key=f"restore_{p['id']}"):
+                restore_patient(p['id'])
+            if col3.button("🗑️ Delete", key=f"del_archived_{p['id']}"):
+                archive_key = f"confirm_delete_archived_{p['id']}"
+                st.session_state[archive_key] = True
+            if st.session_state.get(f"confirm_delete_archived_{p['id']}"):
+                st.warning(f"⚠ Permanently delete {p['first_name']} {p['last_name']}?")
+                col_yes, col_no = st.columns([1
