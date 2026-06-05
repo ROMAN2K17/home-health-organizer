@@ -10,10 +10,13 @@ def safe_rerun():
     try:
         st.rerun()
     except:
-        st.experimental_rerun()
+        try:
+            st.experimental_rerun()
+        except:
+            pass
 
 # -----------------------------
-# DB SETUP
+# DATABASE
 # -----------------------------
 conn = sqlite3.connect("patients.db", check_same_thread=False)
 c = conn.cursor()
@@ -58,10 +61,10 @@ conn.commit()
 # -----------------------------
 def log_action(pid, action, details=""):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute("""
-        INSERT INTO audit_log (patient_id, action, details, created_at)
-        VALUES (?, ?, ?, ?)
-    """, (pid, action, details, now))
+    c.execute(
+        "INSERT INTO audit_log (patient_id, action, details, created_at) VALUES (?,?,?,?)",
+        (pid, action, details, now)
+    )
     conn.commit()
 
 def is_overdue(ts):
@@ -69,18 +72,18 @@ def is_overdue(ts):
         return True
     return datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S") > timedelta(hours=2)
 
+# ✅ FIX: NO pandas SQL params (avoids your error)
 def load_patients(archived=0):
-    return pd.read_sql_query(
-        "SELECT * FROM patients WHERE home_health=1 AND archived=?",
-        conn,
-        params=(archived,)
-    )
+    query = f"""
+        SELECT * FROM patients
+        WHERE home_health=1 AND archived={archived}
+    """
+    return pd.read_sql_query(query, conn)
 
 def load_notes(pid):
     return pd.read_sql_query(
-        "SELECT * FROM notes WHERE patient_id=? ORDER BY created_at DESC",
-        conn,
-        params=(pid,)
+        f"SELECT * FROM notes WHERE patient_id={pid} ORDER BY created_at DESC",
+        conn
     )
 
 def archive_patient(pid):
@@ -99,11 +102,11 @@ def delete_patient(pid):
     c.execute("DELETE FROM notes WHERE patient_id=?", (pid,))
     c.execute("DELETE FROM patients WHERE id=?", (pid,))
     conn.commit()
-    log_action(pid, "DELETE", "Patient permanently deleted")
+    log_action(pid, "DELETE", "Patient deleted")
     safe_rerun()
 
 # -----------------------------
-# UI
+# APP
 # -----------------------------
 st.set_page_config(layout="wide")
 st.title("🏠 Home Health Tracker")
@@ -118,21 +121,23 @@ if "selected_patient_id" not in st.session_state:
 # ADD PATIENT
 # -----------------------------
 st.sidebar.header("➕ Add Patient")
+
 with st.sidebar.form("add"):
     fn = st.text_input("First Name")
     ln = st.text_input("Last Name")
     mrn = st.text_input("MRN")
     ins = st.text_input("Insurance")
     city = st.text_input("City")
-    submit = st.form_submit_button("Add")
 
-    if submit:
+    if st.form_submit_button("Add"):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         c.execute("""
             INSERT INTO patients
             (first_name,last_name,mrn,insurance,city,home_health,last_updated,archived)
             VALUES (?,?,?,?,?,?,?,0)
         """, (fn, ln, mrn, ins, city, 1, now))
+
         conn.commit()
         log_action(None, "CREATE", f"{fn} {ln}")
         safe_rerun()
@@ -140,10 +145,10 @@ with st.sidebar.form("add"):
 # -----------------------------
 # TABS
 # -----------------------------
-tab1, tab2 = st.tabs(["Active Patients", "Archive"])
+tab1, tab2 = st.tabs(["Active", "Archive"])
 
 # -----------------------------
-# ACTIVE
+# ACTIVE PATIENTS
 # -----------------------------
 with tab1:
     patients = load_patients(0)
@@ -158,7 +163,7 @@ with tab1:
 
         with cols[i % 3]:
 
-            if st.button(f"Open {p['first_name']} {p['last_name']}", key=f"open_{p['id']}"):
+            if st.button(f"Open {p['first_name']}", key=f"open_{p['id']}"):
                 st.session_state.selected_patient_id = p["id"]
                 safe_rerun()
 
@@ -166,13 +171,11 @@ with tab1:
             <div style="padding:12px;border-radius:10px;background:{color};margin-bottom:10px">
                 <b>{p['first_name']} {p['last_name']}</b><br>
                 MRN: {p['mrn']}<br>
-                Insurance: {p['insurance']}<br>
                 City: {p['city']}<br>
                 Last: {p['last_updated']}
             </div>
             """, unsafe_allow_html=True)
 
-            # ARCHIVE BUTTON
             if st.button("📦 Archive", key=f"arc_{p['id']}"):
                 archive_patient(p["id"])
 
@@ -188,23 +191,16 @@ with tab2:
         st.info("No archived patients.")
     else:
         for _, p in archived.iterrows():
-            col1, col2, col3 = st.columns([3,1,1])
+            c1, c2, c3 = st.columns([3,1,1])
 
-            col1.write(f"{p['first_name']} {p['last_name']}")
+            c1.write(f"{p['first_name']} {p['last_name']}")
 
-            if col2.button("♻ Restore", key=f"res_{p['id']}"):
+            if c2.button("♻ Restore", key=f"res_{p['id']}"):
                 restore_patient(p["id"])
 
-            if col3.button("🗑️ Delete", key=f"del_{p['id']}"):
-                st.warning("Confirm permanent delete below")
-
-                c1, c2 = st.columns([1,1])
-
-                if c1.button("YES", key=f"yes_{p['id']}"):
+            if c3.button("🗑️ Delete", key=f"del_{p['id']}"):
+                if st.button("CONFIRM DELETE", key=f"confirm_{p['id']}"):
                     delete_patient(p["id"])
-
-                if c2.button("NO", key=f"no_{p['id']}"):
-                    st.info("Cancelled")
 
 # -----------------------------
 # WORKSPACE
@@ -212,10 +208,13 @@ with tab2:
 pid = st.session_state.selected_patient_id
 
 if pid:
-    patient = patients[patients["id"] == pid]
+    patient_df = pd.read_sql_query(
+        f"SELECT * FROM patients WHERE id={pid}",
+        conn
+    )
 
-    if not patient.empty:
-        p = patient.iloc[0]
+    if not patient_df.empty:
+        p = patient_df.iloc[0]
 
         st.markdown("---")
         st.subheader(f"{p['first_name']} {p['last_name']}")
@@ -224,18 +223,20 @@ if pid:
         st.write("Insurance:", p["insurance"])
         st.write("City:", p["city"])
 
-        if st.button("📦 Archive Patient"):
+        if st.button("📦 Archive"):
             archive_patient(pid)
 
-        if st.button("🗑️ Delete Patient"):
+        if st.button("🗑️ Delete"):
             delete_patient(pid)
 
         st.markdown("### Notes")
+
         notes = load_notes(pid)
 
         for _, n in notes.iterrows():
             c1, c2 = st.columns([6,1])
             c1.write(n["note"])
+
             if c2.button("🗑️", key=f"n_{n['id']}"):
                 c.execute("DELETE FROM notes WHERE id=?", (n["id"],))
                 conn.commit()
@@ -243,6 +244,7 @@ if pid:
                 safe_rerun()
 
         new_note = st.text_area("Add note")
+
         if st.button("Add Note"):
             if new_note.strip():
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
