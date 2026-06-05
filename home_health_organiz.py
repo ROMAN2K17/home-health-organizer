@@ -185,7 +185,6 @@ for i, p in patients.iterrows():
         </div>
         """, unsafe_allow_html=True)
 
-        # Delete patient button with confirmation
         if st.button(f"Delete {p['first_name']} {p['last_name']}", key=f"delete_{p['id']}"):
             st.session_state["delete_patient_id"] = p['id']
 
@@ -245,4 +244,4 @@ if selected_id:
                 safe_rerun()
 
         new_note = st.text_area("Add a new note", key=f"note_box_{selected_id}")
-        if st.button("➕ Add
+        if st.button("➕ Add Note", key=f)
