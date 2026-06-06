@@ -73,8 +73,11 @@ def log_action(patient_id, action, details=""):
 def is_overdue(last_updated):
     if not last_updated:
         return True
-    last_time = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S")
-    return datetime.now() - last_time > timedelta(hours=2)
+    try:
+        last_time = datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S")
+        return datetime.now() - last_time > timedelta(hours=2)
+    except Exception:
+        return True
 
 def load_patients(archived=0):
     return pd.read_sql_query(
@@ -134,10 +137,10 @@ patients = load_patients(archived=0)
 search = st.text_input("🔍 Search patients (name, MRN, city)").lower()
 if search:
     patients = patients[
-        patients["first_name"].str.lower().str.contains(search) |
-        patients["last_name"].str.lower().str.contains(search) |
-        patients["mrn"].str.lower().str.contains(search) |
-        patients["city"].str.lower().str.contains(search)
+        patients["first_name"].fillna("").str.lower().str.contains(search) |
+        patients["last_name"].fillna("").str.lower().str.contains(search) |
+        patients["mrn"].fillna("").str.lower().str.contains(search) |
+        patients["city"].fillna("").str.lower().str.contains(search)
     ]
 
 # -----------------------------
@@ -198,14 +201,14 @@ if "delete_patient_id" in st.session_state:
         patient = patient_rows.iloc[0]
         st.warning(f"Are you sure you want to delete {patient['first_name']} {patient['last_name']}?")
         col_yes, col_no = st.columns(2)
-        if col_yes.button("Yes, delete"):
+        if col_yes.button("Yes, delete", key=f"confirm_delete_{pid}"):
             c.execute("DELETE FROM patients WHERE id=?", (pid,))
             c.execute("DELETE FROM notes WHERE patient_id=?", (pid,))
             conn.commit()
             log_action(pid, "DELETE_PATIENT", f"{patient['first_name']} {patient['last_name']}")
             del st.session_state["delete_patient_id"]
             safe_rerun()
-        if col_no.button("Cancel"):
+        if col_no.button("Cancel", key=f"cancel_delete_{pid}"):
             del st.session_state["delete_patient_id"]
             safe_rerun()
 
@@ -243,5 +246,6 @@ if selected_id:
                 log_action(selected_id, "DELETE_NOTE", f"Note ID {n['id']}")
                 safe_rerun()
 
+        # Add new note
         new_note = st.text_area("Add a new note", key=f"note_box_{selected_id}")
-        if st.button("➕ Add Note", key=f)
+        if st.button("
