@@ -22,7 +22,7 @@ def safe_rerun():
 conn = sqlite3.connect("patients.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create tables
+# Patients table
 c.execute("""
 CREATE TABLE IF NOT EXISTS patients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS patients (
 )
 """)
 
+# Notes table
 c.execute("""
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS notes (
 )
 """)
 
+# Audit log table
 c.execute("""
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,4 +248,13 @@ audit_df = pd.read_sql_query(
     """
     SELECT *
     FROM audit_log
-    ORDER BY
+    ORDER BY created_at DESC
+    LIMIT 50
+    """,
+    conn
+)
+
+if audit_df.empty:
+    st.info("No activity logged.")
+else:
+    st.dataframe(audit_df, use_container_width=True)
