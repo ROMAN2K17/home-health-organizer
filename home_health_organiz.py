@@ -241,4 +241,9 @@ if selected_id:
 # -----------------------------
 st.markdown("---")
 st.subheader("📜 Recent Activity")
-audit_df = pd.read_sql_query("SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 
+
+audit_df = pd.read_sql_query(
+    """
+    SELECT *
+    FROM audit_log
+    ORDER BY
