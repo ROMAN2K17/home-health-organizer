@@ -1,8 +1,8 @@
-# home_health_organiz.py
 import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
+import bcrypt
 
 # -----------------------------
 # Safe rerun helper
@@ -57,16 +57,60 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at TEXT
 )
 """)
+
+# USERS table (NEW)
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    role TEXT DEFAULT 'user'
+)
+""")
+
 conn.commit()
+
+# -----------------------------
+# Security helpers
+# -----------------------------
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def check_password(password, hashed):
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+def create_default_admin():
+    c.execute("SELECT * FROM users WHERE username=?", ("admin",))
+    if not c.fetchone():
+        c.execute(
+            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+            ("admin", hash_password("admin123"), "admin")
+        )
+        conn.commit()
+
+create_default_admin()
+
+def authenticate(username, password):
+    c.execute("SELECT * FROM users WHERE username=?", (username,))
+    user = c.fetchone()
+    if user and check_password(password, user[2]):
+        return user
+    return None
+
+def current_user():
+    return st.session_state.get("user")
 
 # -----------------------------
 # Helper Functions
 # -----------------------------
 def log_action(patient_id, action, details=""):
+    user = current_user()
+    user_tag = user["username"] if user else "unknown"
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     c.execute(
         "INSERT INTO audit_log (patient_id, action, details, created_at) VALUES (?, ?, ?, ?)",
-        (patient_id, action, details, now)
+        (patient_id, action, f"{details} | by {user_tag}", now)
     )
     conn.commit()
 
@@ -97,13 +141,88 @@ def get_overdue_count(patients_df):
     return sum(is_overdue(p) for p in patients_df["last_updated"])
 
 # -----------------------------
-# Streamlit App
+# LOGIN GATE
+# -----------------------------
+if "user" not in st.session_state:
+    st.session_state["user"] = None
+
+if st.session_state["user"] is None:
+    st.title("🔐 Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        user = authenticate(username, password)
+        if user:
+            st.session_state["user"] = {
+                "id": user[0],
+                "username": user[1],
+                "role": user[3]
+            }
+            safe_rerun()
+        else:
+            st.error("Invalid username or password")
+
+    st.stop()
+
+user = current_user()
+
+# -----------------------------
+# UI SETUP
 # -----------------------------
 st.set_page_config(layout="wide", page_title="Home Health Tracker")
 st.title("🏠 Home Health Patient Tracker")
 
 # -----------------------------
-# Sidebar: Add New Patient
+# SIDEBAR - USER + ADMIN PANEL
+# -----------------------------
+st.sidebar.markdown("## 👤 User Info")
+st.sidebar.write(f"**{user['username']}**")
+st.sidebar.write(f"Role: **{user['role']}**")
+
+# -----------------------------
+# ADMIN PANEL
+# -----------------------------
+if user["role"] == "admin":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("👑 Admin Panel")
+
+    # Create user
+    with st.sidebar.form("create_user"):
+        new_user = st.text_input("New Username")
+        new_pass = st.text_input("New Password", type="password")
+        role = st.selectbox("Role", ["user", "admin"])
+
+        if st.form_submit_button("Create User"):
+            try:
+                c.execute(
+                    "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                    (new_user, hash_password(new_pass), role)
+                )
+                conn.commit()
+                st.success("User created")
+            except sqlite3.IntegrityError:
+                st.error("Username already exists")
+
+    # Reset password
+    st.sidebar.markdown("### 🔄 Reset Password")
+
+    users_df = pd.read_sql_query("SELECT username FROM users", conn)
+
+    selected_user = st.selectbox("User", users_df["username"].tolist())
+    new_pass_reset = st.text_input("New Password", type="password")
+
+    if st.button("Reset Password"):
+        c.execute(
+            "UPDATE users SET password=? WHERE username=?",
+            (hash_password(new_pass_reset), selected_user)
+        )
+        conn.commit()
+        st.success("Password updated")
+
+# -----------------------------
+# Add Patient
 # -----------------------------
 st.sidebar.header("➕ Add New Patient")
 with st.sidebar.form("add_patient_form"):
@@ -112,7 +231,9 @@ with st.sidebar.form("add_patient_form"):
     mrn = st.text_input("MRN #")
     insurance = st.text_input("Insurance")
     city = st.text_input("City")
+
     submitted = st.form_submit_button("Add Patient")
+
     if submitted:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute(
@@ -124,16 +245,14 @@ with st.sidebar.form("add_patient_form"):
         safe_rerun()
 
 # -----------------------------
-# Session State for Selected Patient
+# Load Patients
 # -----------------------------
 if "selected_patient_id" not in st.session_state:
     st.session_state["selected_patient_id"] = None
 
-# -----------------------------
-# Load Patients and Search
-# -----------------------------
 patients = load_patients(archived=0)
-search = st.text_input("🔍 Search patients (name, MRN, city)").lower()
+
+search = st.text_input("🔍 Search patients").lower()
 if search:
     patients = patients[
         patients["first_name"].fillna("").str.lower().str.contains(search) |
@@ -143,118 +262,94 @@ if search:
     ]
 
 # -----------------------------
-# Dashboard Metrics
+# Dashboard
 # -----------------------------
 overdue_count = get_overdue_count(patients)
+
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Home Health", len(patients))
 col2.metric("Overdue Patients", overdue_count)
 col3.metric("Up to Date", len(patients) - overdue_count)
+
 st.markdown("---")
 
 # -----------------------------
 # Patient Cards
 # -----------------------------
-st.markdown("## 🏠 Home Health Patients")
+st.markdown("## 🏠 Patients")
 cols = st.columns(3)
+
 for i, p in patients.iterrows():
     overdue = is_overdue(p["last_updated"])
     color = "#ffd6d6" if overdue else "#d9f7d9"
-    card_id = f"patient_{p['id']}"
+
     with cols[i % 3]:
-        if st.button(f"Select {p['first_name']} {p['last_name']}", key=card_id):
+        if st.button(f"Select {p['first_name']} {p['last_name']}", key=f"sel_{p['id']}"):
             st.session_state["selected_patient_id"] = p["id"]
             safe_rerun()
+
         st.markdown(f"""
-        <div style="
-            border-radius:12px;
-            padding:15px;
-            margin-top:-10px;
-            margin-bottom:20px;
-            background-color:{color};
-            box-shadow:0 2px 8px rgba(0,0,0,0.1);
-        ">
-            <h4 style="margin-bottom:5px;">{p['first_name']} {p['last_name']}</h4>
-            <p><b>MRN:</b> {p['mrn']}</p>
-            <p><b>Insurance:</b> {p['insurance']}</p>
-            <p><b>City:</b> {p['city']}</p>
-            <p><b>Last Update:</b> {p['last_updated']}</p>
-            {"<p style='color:red;font-weight:bold;'>⚠ OVERDUE</p>" if overdue else ""}
+        <div style="padding:12px;border-radius:10px;background:{color};margin-bottom:15px">
+            <b>{p['first_name']} {p['last_name']}</b><br>
+            MRN: {p['mrn']}<br>
+            City: {p['city']}<br>
+            Last Update: {p['last_updated']}
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button(f"Archive {p['first_name']} {p['last_name']}", key=f"archive_{p['id']}"):
-            c.execute("UPDATE patients SET archived=1 WHERE id=?", (p['id'],))
+        if user["role"] == "admin":
+            if st.button(f"Archive {p['id']}", key=f"arch_{p['id']}"):
+                c.execute("UPDATE patients SET archived=1 WHERE id=?", (p["id"],))
+                conn.commit()
+                log_action(p["id"], "ARCHIVE_PATIENT", f"{p['first_name']} {p['last_name']}")
+                safe_rerun()
+
+# -----------------------------
+# Selected Patient
+# -----------------------------
+selected_id = st.session_state.get("selected_patient_id")
+
+if selected_id:
+    patient_rows = patients[patients["id"] == selected_id]
+
+    if not patient_rows.empty:
+        patient = patient_rows.iloc[0]
+
+        st.markdown("---")
+        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
+
+        notes = load_notes(selected_id)
+
+        for _, n in notes.iterrows():
+            st.write(f"{n['created_at']} — {n['note']}")
+
+        new_note = st.text_area("Add note")
+
+        if st.button("➕ Add Note"):
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            c.execute(
+                "INSERT INTO notes (patient_id,note,created_at) VALUES (?,?,?)",
+                (selected_id, new_note, now)
+            )
+            c.execute(
+                "UPDATE patients SET last_updated=? WHERE id=?",
+                (now, selected_id)
+            )
+
             conn.commit()
-            log_action(p['id'], "ARCHIVE_PATIENT", f"{p['first_name']} {p['last_name']}")
+            log_action(selected_id, "ADD_NOTE", new_note[:100])
             safe_rerun()
 
 # -----------------------------
-# Selected Patient Workspace
-# -----------------------------
-selected_id = st.session_state.get("selected_patient_id")
-if selected_id:
-    patient_rows = patients[patients["id"] == selected_id]
-    if not patient_rows.empty:
-        patient = patient_rows.iloc[0]
-        st.markdown("---")
-        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
-        if is_overdue(patient["last_updated"]):
-            st.error("⚠️ OVERDUE: No update in over 2 hours")
-        else:
-            st.success("✅ Up to date")
-        st.write(f"**MRN:** {patient['mrn']}")
-        st.write(f"**Insurance:** {patient['insurance']}")
-        st.write(f"**City:** {patient['city']}")
-        st.write(f"**Last Updated:** {patient['last_updated']}")
-
-        # Notes Section
-        st.markdown("### 📝 Notes")
-        notes = load_notes(selected_id)
-        if notes.empty:
-            st.info("No notes yet.")
-        for _, n in notes.iterrows():
-            col1, col2 = st.columns([6,1])
-            col1.write(f"**{n['created_at']}** — {n['note']}")
-            if col2.button("🗑️", key=f"delete_note_{n['id']}"):
-                c.execute("DELETE FROM notes WHERE id=?", (n["id"],))
-                conn.commit()
-                log_action(selected_id, "DELETE_NOTE", f"Note ID {n['id']}")
-                safe_rerun()
-
-        new_note = st.text_area("Add a new note", key=f"note_box_{selected_id}")
-        if st.button("➕ Add Note", key=f"add_note_{selected_id}"):
-            if new_note.strip():
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                c.execute(
-                    "INSERT INTO notes (patient_id,note,created_at) VALUES (?,?,?)",
-                    (selected_id, new_note.strip(), now)
-                )
-                c.execute(
-                    "UPDATE patients SET last_updated=? WHERE id=?",
-                    (now, selected_id)
-                )
-                conn.commit()
-                log_action(selected_id, "ADD_NOTE", new_note[:100])
-                safe_rerun()
-
-# -----------------------------
-# Audit Log
+# AUDIT LOG
 # -----------------------------
 st.markdown("---")
 st.subheader("📜 Recent Activity")
 
 audit_df = pd.read_sql_query(
-    """
-    SELECT *
-    FROM audit_log
-    ORDER BY created_at DESC
-    LIMIT 50
-    """,
+    "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 50",
     conn
 )
 
-if audit_df.empty:
-    st.info("No activity logged.")
-else:
-    st.dataframe(audit_df, use_container_width=True)
+st.dataframe(audit_df, use_container_width=True)
