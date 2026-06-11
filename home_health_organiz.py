@@ -278,36 +278,7 @@ with st.sidebar.form("add_patient_form", clear_on_submit=True):
 
 
 
-    # -----------------------------
-    # RESET PASSWORD SECTION
-    # -----------------------------
-    st.sidebar.markdown("### 🔄 Reset Password")
-
-    users_df = pd.read_sql_query("SELECT username FROM users", conn)
-
-    selected_user = st.selectbox(
-        "User",
-        users_df["username"].tolist(),
-        key="reset_user_select"
-    )
-
-    new_pass_reset = st.text_input(
-        "New Password",
-        type="password",
-        key="reset_password_input"
-    )
-
-    if st.button("Reset Password", key="reset_password_btn"):
-
-        if new_pass_reset:
-
-            c.execute(
-                "UPDATE users SET password=? WHERE username=?",
-                (hash_password(new_pass_reset), selected_user)
-            )
-            conn.commit()
-
-            st.success("Password updated")
+   
 # -----------------------------
 # PATIENT LIST
 # -----------------------------
