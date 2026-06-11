@@ -218,30 +218,147 @@ if user["role"] == "admin":
         conn.commit()
         st.success("Password updated")
 
+
 # -----------------------------
 # ADD PATIENT
 # -----------------------------
 st.sidebar.header("➕ Add New Patient")
 
-with st.sidebar.form("add_patient"):
+with st.sidebar.form("add_patient", clear_on_submit=True):
+
     first_name = st.text_input("First Name")
     last_name = st.text_input("Last Name")
     mrn = st.text_input("MRN")
     insurance = st.text_input("Insurance")
     city = st.text_input("City")
 
-    if st.form_submit_button("Add Patient"):
+    submitted = st.form_submit_button("Add Patient")
+
+    if submitted:
+
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         c.execute("""
             INSERT INTO patients
-            (first_name,last_name,mrn,insurance,city,home_health,last_updated)
+            (first_name, last_name, mrn, insurance, city, home_health, last_updated)
             VALUES (?,?,?,?,?,1,?)
         """, (first_name, last_name, mrn, insurance, city, now))
 
         conn.commit()
+
         log_action(None, "CREATE_PATIENT", f"{first_name} {last_name}")
+
         safe_rerun()
+
+
+# -----------------------------
+# SELECTED PATIENT PANEL
+# -----------------------------
+selected_id = st.session_state.get("selected_patient_id")
+
+if selected_id:
+
+    patient_df = pd.read_sql_query(
+        "SELECT * FROM patients WHERE id=?",
+        conn,
+        params=(selected_id,)
+    )
+
+    if not patient_df.empty:
+        patient = patient_df.iloc[0]
+
+        st.markdown("---")
+        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.info(f"""
+**Patient Info**
+
+Name: {patient['first_name']} {patient['last_name']}
+MRN: {patient['mrn']}
+City: {patient['city']}
+""")
+
+        with col2:
+            st.success(f"""
+**Insurance**
+
+{patient['insurance']}
+""")
+
+        with col3:
+            st.warning(f"""
+**Status**
+
+Last Updated: {patient['last_updated']}
+""")
+
+        # -----------------------------
+        # NOTES
+        # -----------------------------
+        st.markdown("### 📝 Notes")
+
+        notes = load_notes(selected_id)
+
+        for _, n in notes.iterrows():
+            st.write(f"{n['created_at']} — {n['note']}")
+
+        with st.form("note_form", clear_on_submit=True):
+
+            new_note = st.text_area("Add note")
+
+            submitted = st.form_submit_button("➕ Add Note")
+
+            if submitted and new_note.strip():
+
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                c.execute(
+                    "INSERT INTO notes (patient_id, note, created_at) VALUES (?,?,?)",
+                    (selected_id, new_note, now)
+                )
+
+                c.execute(
+                    "UPDATE patients SET last_updated=? WHERE id=?",
+                    (now, selected_id)
+                )
+
+                conn.commit()
+
+                log_action(selected_id, "ADD_NOTE", new_note)
+
+                safe_rerun()
+
+
+# -----------------------------
+# ADMIN: CREATE USER
+# -----------------------------
+if user["role"] == "admin":
+
+    st.sidebar.markdown("### 👑 Create User")
+
+    with st.sidebar.form("create_user", clear_on_submit=True):
+
+        new_user = st.text_input("New Username")
+        new_pass = st.text_input("New Password", type="password")
+        role = st.selectbox("Role", ["user", "admin"])
+
+        submitted = st.form_submit_button("Create User")
+
+        if submitted:
+            try:
+                c.execute(
+                    "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                    (new_user, hash_password(new_pass), role)
+                )
+                conn.commit()
+
+                st.success("User created")
+
+            except sqlite3.IntegrityError:
+                st.error("Username already exists")
 
 # -----------------------------
 # PATIENT LIST
