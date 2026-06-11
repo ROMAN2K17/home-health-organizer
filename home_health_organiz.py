@@ -364,6 +364,72 @@ for i, p in patients.iterrows():
     with cols[i % 3]:
 
         # -----------------------------
+        # FULL CARD CLICK (hidden button)
+        # -----------------------------
+        if st.button("", key=f"card_click_{p['id']}", use_container_width=True):
+            st.session_state["selected_patient_id"] = p["id"]
+            safe_rerun()
+
+        # -----------------------------
+        # VISUAL CARD (name is header INSIDE card)
+        # -----------------------------
+        st.markdown(f"""
+        <div style="
+            padding:12px;
+            background:{color};
+            border-radius:12px;
+            margin-top:-35px;
+            margin-bottom:10px;
+            border:1px solid #ddd;
+        ">
+            <div style="font-size:18px;font-weight:700;">
+                {p['first_name']} {p['last_name']}
+            </div>
+
+            <div style="margin-top:6px;font-size:13px;">
+                <b>MRN:</b> {p['mrn']}<br>
+                <b>City:</b> {p['city']}<br>
+                <b>Last Update:</b> {p['last_updated']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # -----------------------------
+        # ARCHIVE (ADMIN ONLY)
+        # -----------------------------
+        if user["role"] == "admin":
+
+            if st.session_state.get("archive_confirm") == p["id"]:
+                st.warning(f"Archive {p['first_name']} {p['last_name']}?")
+
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    if st.button("Yes", key=f"archive_yes_{p['id']}"):
+                        c.execute(
+                            "UPDATE patients SET archived=1 WHERE id=?",
+                            (p["id"],)
+                        )
+                        conn.commit()
+                        log_action(p["id"], "ARCHIVE", "archived")
+                        st.session_state["archive_confirm"] = None
+                        safe_rerun()
+
+                with c2:
+                    if st.button("No", key=f"archive_no_{p['id']}"):
+                        st.session_state["archive_confirm"] = None
+                        safe_rerun()
+
+            else:
+                if st.button("Archive", key=f"archive_{p['id']}"):
+                    st.session_state["archive_confirm"] = p["id"]
+                    safe_rerun()
+    overdue = is_overdue(p["last_updated"])
+    color = "#ffd6d6" if overdue else "#d9f7d9"
+
+    with cols[i % 3]:
+
+        # -----------------------------
         # CLICKABLE CARD (selection)
         # -----------------------------
         if st.button(
