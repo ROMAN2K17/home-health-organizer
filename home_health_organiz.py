@@ -345,15 +345,12 @@ col3.metric("Up to date", len(patients) - overdue_count)
 st.markdown("---")
 
 # -----------------------------
-# PATIENT CARDS (FULL FIXED VERSION)
+# PATIENT CARDS (INTEGRATED VERSION)
 # -----------------------------
 
 # Ensure session state exists
 if "archive_confirm" not in st.session_state:
     st.session_state["archive_confirm"] = None
-
-if "selected_patient_id" not in st.session_state:
-    st.session_state["selected_patient_id"] = None
 
 cols = st.columns(3)
 
@@ -363,33 +360,30 @@ for i, p in patients.iterrows():
 
     with cols[i % 3]:
 
-        # -----------------------------
-        # CLICK ANYWHERE (invisible button)
-        # -----------------------------
+        # Initialize toggle
+        if f"open_{p['id']}" not in st.session_state:
+            st.session_state[f"open_{p['id']}"] = False
+
+        # Card click toggles
         if st.button(
-            "",
-            key=f"select_card_{p['id']}",
+            f"{p['first_name']} {p['last_name']}",
+            key=f"toggle_{p['id']}_{i}",
             use_container_width=True
         ):
-            st.session_state["selected_patient_id"] = p["id"]
+            st.session_state[f"open_{p['id']}"] = not st.session_state[f"open_{p['id']}"]
             safe_rerun()
 
-        # -----------------------------
-        # VISUAL CARD (NAME INSIDE CARD)
-        # -----------------------------
+        # Card display
         st.markdown(f"""
         <div style="
-            margin-top:-38px;
             padding:12px;
             background:{color};
             border-radius:12px;
             border:1px solid #ddd;
-            cursor:pointer;
         ">
             <div style="font-size:18px;font-weight:700;">
                 {p['first_name']} {p['last_name']}
             </div>
-
             <div style="margin-top:6px;font-size:13px;">
                 <b>MRN:</b> {p['mrn']}<br>
                 <b>City:</b> {p['city']}<br>
@@ -398,104 +392,39 @@ for i, p in patients.iterrows():
         </div>
         """, unsafe_allow_html=True)
 
-        # -----------------------------
-        # ARCHIVE (ADMIN ONLY)
-        # -----------------------------
-        if user["role"] == "admin":
+        # Expanded view
+        if st.session_state[f"open_{p['id']}"]:
+            st.markdown("### 📝 Notes")
 
-            # CONFIRMATION MODE
-            if st.session_state.get("archive_confirm") == p["id"]:
+            notes = load_notes(p["id"])
+            for _, n in notes.iterrows():
+                st.write(f"{n['created_at']} — {n['note']}")
 
-                st.warning(
-                    f"Archive {p['first_name']} {p['last_name']}?"
-                )
-
-                c1, c2 = st.columns(2)
-
-                with c1:
-                    if st.button(
-                        "Yes",
-                        key=f"archive_yes_{p['id']}"
-                    ):
-                        c.execute(
-                            "UPDATE patients SET archived=1 WHERE id=?",
-                            (p["id"],)
-                        )
-                        conn.commit()
-
-                        log_action(
-                            p["id"],
-                            "ARCHIVE",
-                            f"{p['first_name']} {p['last_name']}"
-                        )
-
-                        st.session_state["archive_confirm"] = None
-                        safe_rerun()
-
-                with c2:
-                    if st.button(
-                        "No",
-                        key=f"archive_no_{p['id']}"
-                    ):
-                        st.session_state["archive_confirm"] = None
-                        safe_rerun()
-
-            # NORMAL STATE
-            else:
-                if st.button(
-                    "Archive",
-                    key=f"archive_btn_{p['id']}"
-                ):
-                    st.session_state["archive_confirm"] = p["id"]
+            # Add note form
+            with st.form(f"note_form_{p['id']}", clear_on_submit=True):
+                new_note = st.text_area("Add note")
+                submitted = st.form_submit_button("➕ Add Note")
+                if submitted and new_note.strip():
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    c.execute(
+                        "INSERT INTO notes (patient_id, note, created_at) VALUES (?,?,?)",
+                        (p["id"], new_note, now)
+                    )
+                    c.execute(
+                        "UPDATE patients SET last_updated=? WHERE id=?",
+                        (now, p["id"])
+                    )
+                    conn.commit()
+                    log_action(p["id"], "ADD_NOTE", new_note)
                     safe_rerun()
-    overdue = is_overdue(p["last_updated"])
-    color = "#ffd6d6" if overdue else "#d9f7d9"
 
-    with cols[i % 3]:
-
-        # -----------------------------
-        # FULL CARD CLICK (hidden button)
-        # -----------------------------
-        if st.button("", key=f"card_click_{p['id']}", use_container_width=True):
-            st.session_state["selected_patient_id"] = p["id"]
-            safe_rerun()
-
-        # -----------------------------
-        # VISUAL CARD (name is header INSIDE card)
-        # -----------------------------
-        st.markdown(f"""
-        <div style="
-            padding:12px;
-            background:{color};
-            border-radius:12px;
-            margin-top:-35px;
-            margin-bottom:10px;
-            border:1px solid #ddd;
-        ">
-            <div style="font-size:18px;font-weight:700;">
-                {p['first_name']} {p['last_name']}
-            </div>
-
-            <div style="margin-top:6px;font-size:13px;">
-                <b>MRN:</b> {p['mrn']}<br>
-                <b>City:</b> {p['city']}<br>
-                <b>Last Update:</b> {p['last_updated']}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # -----------------------------
-        # ARCHIVE (ADMIN ONLY)
-        # -----------------------------
+        # Archive (admin only)
         if user["role"] == "admin":
-
             if st.session_state.get("archive_confirm") == p["id"]:
                 st.warning(f"Archive {p['first_name']} {p['last_name']}?")
-
                 c1, c2 = st.columns(2)
-
                 with c1:
-                    if st.button("Yes", key=f"archive_yes_{p['id']}"):
+                    if st.button("Yes", key=f"archive_yes_{p['id']}_{i}"):
                         c.execute(
                             "UPDATE patients SET archived=1 WHERE id=?",
                             (p["id"],)
@@ -504,93 +433,12 @@ for i, p in patients.iterrows():
                         log_action(p["id"], "ARCHIVE", "archived")
                         st.session_state["archive_confirm"] = None
                         safe_rerun()
-
                 with c2:
-                    if st.button("No", key=f"archive_no_{p['id']}"):
+                    if st.button("No", key=f"archive_no_{p['id']}_{i}"):
                         st.session_state["archive_confirm"] = None
                         safe_rerun()
-
             else:
-                if st.button("Archive", key=f"archive_{p['id']}"):
-                    st.session_state["archive_confirm"] = p["id"]
-                    safe_rerun()
-    overdue = is_overdue(p["last_updated"])
-    color = "#ffd6d6" if overdue else "#d9f7d9"
-
-    with cols[i % 3]:
-
-        # -----------------------------
-        # CLICKABLE CARD (selection)
-        # -----------------------------
-        if st.button(
-            f"{p['first_name']} {p['last_name']}",
-            key=f"card_{p['id']}_select",
-            use_container_width=True
-        ):
-            st.session_state["selected_patient_id"] = p["id"]
-            safe_rerun()
-
-# -----------------------------
-# CARD DETAILS
-# -----------------------------
-        st.markdown(f"""
-        <div style="padding:10px;background:{color};
-                    border-radius:10px;
-                    margin-bottom:10px;">
-            <b>MRN:</b> {p['mrn']}<br>
-            <b>City:</b> {p['city']}<br>
-            <b>Last Update:</b> {p['last_updated']}
-        </div>
-        """, unsafe_allow_html=True)
-
-# -----------------------------
-# ARCHIVE (ADMIN ONLY)
-# -----------------------------
-        if user["role"] == "admin":
-
-            # If this patient is in confirmation mode
-            if st.session_state.get("archive_confirm") == p["id"]:
-                st.warning(
-                    f"Are you sure you want to archive "
-                    f"{p['first_name']} {p['last_name']}?"
-                )
-
-                yes_col, no_col = st.columns(2)
-
-                with yes_col:
-                    if st.button(
-                        "Yes",
-                        key=f"archive_yes_{p['id']}"
-                    ):
-                        c.execute(
-                            "UPDATE patients SET archived=1 WHERE id=?",
-                            (p["id"],)
-                        )
-                        conn.commit()
-
-                        log_action(
-                            p["id"],
-                            "ARCHIVE",
-                            f"{p['first_name']} {p['last_name']}"
-                        )
-
-                        st.session_state["archive_confirm"] = None
-                        safe_rerun()
-
-                with no_col:
-                    if st.button(
-                        "No",
-                        key=f"archive_no_{p['id']}"
-                    ):
-                        st.session_state["archive_confirm"] = None
-                        safe_rerun()
-
-            # Otherwise show archive button
-            else:
-                if st.button(
-                    "Archive",
-                    key=f"archive_{p['id']}"
-                ):
+                if st.button("Archive", key=f"archive_btn_{p['id']}_{i}"):
                     st.session_state["archive_confirm"] = p["id"]
                     safe_rerun()
 # -----------------------------
