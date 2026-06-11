@@ -275,6 +275,9 @@ st.markdown("---")
 # -----------------------------
 # PATIENT CARDS
 # -----------------------------
+# ensure archive confirmation state exists
+if "archive_confirm" not in st.session_state:
+    st.session_state["archive_confirm"] = None
 
 cols = st.columns(3)
 
@@ -301,7 +304,7 @@ for i, p in patients.iterrows():
         # Archive button with confirmation
         if user["role"] == "admin":
             # Check if this patient is waiting for confirmation
-            if st.session_state["archive_confirm"] == p["id"]:
+            if st.session_state.get("archive_confirm") == p["id"]:
                 st.warning(f"Are you sure you want to archive {p['first_name']} {p['last_name']}?")
                 yes_col, no_col = st.columns(2)
 
