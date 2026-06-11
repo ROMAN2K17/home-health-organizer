@@ -277,38 +277,6 @@ with st.sidebar.form("add_patient_form", clear_on_submit=True):
         safe_rerun()
 
 
-# -----------------------------
-# SIDEBAR: ADMIN PANEL
-# -----------------------------
-if user["role"] == "admin":
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("👑 Admin Panel")
-
-    # -----------------------------
-    # CREATE USER FORM
-    # -----------------------------
-    with st.sidebar.form("create_user_form", clear_on_submit=True):
-
-        new_user = st.text_input("New Username", key="new_user_input")
-        new_pass = st.text_input("New Password", type="password", key="new_pass_input")
-        role = st.selectbox("Role", ["user", "admin"], key="role_select")
-
-        submitted = st.form_submit_button("Create User")
-
-        if submitted and new_user and new_pass:
-
-            try:
-                c.execute(
-                    "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                    (new_user, hash_password(new_pass), role)
-                )
-                conn.commit()
-
-                st.success("User created")
-
-            except sqlite3.IntegrityError:
-                st.error("Username already exists")
 
     # -----------------------------
     # RESET PASSWORD SECTION
