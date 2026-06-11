@@ -321,24 +321,23 @@ for i, p in patients.iterrows():
             safe_rerun()
 
         # Card display
-        st.markdown(f"""
-        <div style="
-            padding:12px;
-            background:{color};
-            border-radius:12px;
-            border:1px solid #ddd;
-        ">
-            <div style="font-size:18px;font-weight:700;">
-                {p['first_name']} {p['last_name']}
-            </div>
-            <div style="margin-top:6px;font-size:13px;">
-                <b>MRN:</b> {p['mrn']}<br>
-                <b>City:</b> {p['city']}<br>
-                <b>Last Update:</b> {p['last_updated']}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
+st.markdown(f"""
+<div style="
+    padding:12px;
+    background:{color};
+    border-radius:12px;
+    border:1px solid #ddd;
+">
+    <div style="font-size:18px;font-weight:700;">
+        {p['first_name']} {p['last_name']}
+    </div>
+    <div style="margin-top:6px;font-size:13px;">
+        <b>MRN:</b> {p['mrn']}<br>
+        <b>City:</b> {p['city']}<br>
+        <b>Last Update:</b> {p['last_updated']}
+    </div>
+</div>
+""", unsafe_allow_html=True)
         # Expanded view
         if st.session_state[f"open_{p['id']}"]:
             st.markdown("### 📝 Notes")
