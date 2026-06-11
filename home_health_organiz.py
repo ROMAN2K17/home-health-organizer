@@ -302,9 +302,9 @@ for i, p in patients.iterrows():
             st.session_state["selected_patient_id"] = p["id"]
             safe_rerun()
 
-        # -----------------------------
-        # CARD DETAILS
-        # -----------------------------
+# -----------------------------
+# CARD DETAILS
+# -----------------------------
         st.markdown(f"""
         <div style="padding:10px;background:{color};
                     border-radius:10px;
@@ -315,9 +315,9 @@ for i, p in patients.iterrows():
         </div>
         """, unsafe_allow_html=True)
 
-        # -----------------------------
-        # ARCHIVE (ADMIN ONLY)
-        # -----------------------------
+# -----------------------------
+# ARCHIVE (ADMIN ONLY)
+# -----------------------------
         if user["role"] == "admin":
 
             # If this patient is in confirmation mode
@@ -365,6 +365,77 @@ for i, p in patients.iterrows():
                 ):
                     st.session_state["archive_confirm"] = p["id"]
                     safe_rerun()
+# -----------------------------
+# SELECTED PATIENT PANEL
+# -----------------------------
+selected_id = st.session_state.get("selected_patient_id")
+
+if selected_id:
+
+    patient_df = pd.read_sql_query(
+        "SELECT * FROM patients WHERE id=?",
+        conn,
+        params=(selected_id,)
+    )
+
+    if not patient_df.empty:
+        patient = patient_df.iloc[0]
+
+        st.markdown("---")
+        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
+
+        # INFO CARDS
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.info(f"""
+**Patient Info**
+
+Name: {patient['first_name']} {patient['last_name']}
+MRN: {patient['mrn']}
+City: {patient['city']}
+""")
+
+        with col2:
+            st.success(f"""
+**Insurance**
+
+{patient['insurance']}
+""")
+
+        with col3:
+            st.warning(f"""
+**Status**
+
+Last Updated: {patient['last_updated']}
+""")
+
+        # NOTES
+        notes = load_notes(selected_id)
+
+        st.markdown("### 📝 Notes")
+
+        for _, n in notes.iterrows():
+            st.write(f"{n['created_at']} — {n['note']}")
+
+        new_note = st.text_area("Add note")
+
+        if st.button("➕ Add Note", key=f"add_note_{selected_id}"):
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            c.execute(
+                "INSERT INTO notes (patient_id, note, created_at) VALUES (?,?,?)",
+                (selected_id, new_note, now)
+            )
+
+            c.execute(
+                "UPDATE patients SET last_updated=? WHERE id=?",
+                (now, selected_id)
+            )
+
+            conn.commit()
+            log_action(selected_id, "ADD_NOTE", new_note)
+            safe_rerun()
 # -----------------------------
 # AUDIT LOG
 # -----------------------------
