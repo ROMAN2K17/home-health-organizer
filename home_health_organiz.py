@@ -273,7 +273,7 @@ col3.metric("Up to date", len(patients) - overdue_count)
 st.markdown("---")
 
 # -----------------------------
-# PATIENT CARDS (click anywhere to select)
+# PATIENT CARDS (click anywhere + archive + unique keys)
 # -----------------------------
 
 # Ensure archive confirmation state exists
@@ -287,18 +287,24 @@ for i, p in patients.iterrows():
     color = "#ffd6d6" if overdue else "#d9f7d9"
 
     with cols[i % 3]:
-        # Card clickable as a whole
+
+        # -----------------------------
+        # Clickable entire card
+        # -----------------------------
         card_clicked = st.button(
             "",
-            key=f"card_{p['id']}",
+            key=f"card_{p['id']}_btn",
             help=f"Click to select {p['first_name']} {p['last_name']}",
             use_container_width=True
         )
+
         if card_clicked:
             st.session_state["selected_patient_id"] = p["id"]
             safe_rerun()
 
-        # Card content (always displayed)
+        # -----------------------------
+        # Card content
+        # -----------------------------
         st.markdown(f"""
         <div style="padding:10px;background:{color};border-radius:10px;margin-bottom:10px;cursor:pointer;">
             <b>{p['first_name']} {p['last_name']}</b><br>
@@ -308,6 +314,34 @@ for i, p in patients.iterrows():
         </div>
         """, unsafe_allow_html=True)
 
+        # -----------------------------
+        # Archive (admin only)
+        # -----------------------------
+        if user["role"] == "admin":
+            if st.session_state.get("archive_confirm") == p["id"]:
+                st.warning(f"Are you sure you want to archive {p['first_name']} {p['last_name']}?")
+
+                yes_col, no_col = st.columns(2)
+
+                with yes_col:
+                    if st.button("Yes", key=f"archive_yes_{p['id']}"):
+                        c.execute(
+                            "UPDATE patients SET archived=1 WHERE id=?",
+                            (p["id"],)
+                        )
+                        conn.commit()
+                        log_action(p["id"], "ARCHIVE", f"{p['first_name']} {p['last_name']}")
+                        st.session_state["archive_confirm"] = None
+                        safe_rerun()
+
+                with no_col:
+                    if st.button("No", key=f"archive_no_{p['id']}"):
+                        st.session_state["archive_confirm"] = None
+                        safe_rerun()
+            else:
+                if st.button("Archive", key=f"archive_{p['id']}"):
+                    st.session_state["archive_confirm"] = p["id"]
+                    safe_rerun()
         # -----------------------------
         # Archive button (admin only)
         # -----------------------------
