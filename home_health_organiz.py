@@ -181,45 +181,70 @@ st.sidebar.markdown("## 👤 User")
 st.sidebar.write(f"**{user['username']}**")
 st.sidebar.write(f"Role: **{user['role']}**")
 
+
 # -----------------------------
-# ADMIN PANEL
+# ADMIN PANEL (CLEAN VERSION)
 # -----------------------------
 if user["role"] == "admin":
+
     st.sidebar.markdown("---")
     st.sidebar.subheader("👑 Admin Panel")
 
-    with st.sidebar.form("create_user"):
-        new_user = st.text_input("New Username")
-        new_pass = st.text_input("New Password", type="password")
-        role = st.selectbox("Role", ["user", "admin"])
+    # =============================
+    # CREATE USER (ONLY ONE FORM)
+    # =============================
+    with st.sidebar.form("admin_create_user_form", clear_on_submit=True):
 
-        if st.form_submit_button("Create User"):
+        new_user = st.text_input("New Username", key="admin_new_user")
+        new_pass = st.text_input("New Password", type="password", key="admin_new_pass")
+        role = st.selectbox("Role", ["user", "admin"], key="admin_role_select")
+
+        submitted = st.form_submit_button("Create User")
+
+        if submitted and new_user and new_pass:
+
             try:
                 c.execute(
                     "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
                     (new_user, hash_password(new_pass), role)
                 )
                 conn.commit()
+
                 st.success("User created")
+
             except sqlite3.IntegrityError:
                 st.error("Username already exists")
 
+    # =============================
+    # RESET PASSWORD (SINGLE SECTION)
+    # =============================
     st.sidebar.markdown("### 🔄 Reset Password")
 
     users_df = pd.read_sql_query("SELECT username FROM users", conn)
-    selected_user = st.selectbox("User", users_df["username"].tolist())
-    new_pass_reset = st.text_input("New Password", type="password")
 
-    if st.button("Reset Password"):
-        c.execute(
-            "UPDATE users SET password=? WHERE username=?",
-            (hash_password(new_pass_reset), selected_user)
-        )
-        conn.commit()
-        st.success("Password updated")
+    selected_user = st.selectbox(
+        "Select User",
+        users_df["username"].tolist(),
+        key="admin_reset_user"
+    )
 
+    new_pass_reset = st.text_input(
+        "New Password",
+        type="password",
+        key="admin_reset_pass"
+    )
 
+    if st.button("Reset Password", key="admin_reset_button"):
 
+        if new_pass_reset:
+
+            c.execute(
+                "UPDATE users SET password=? WHERE username=?",
+                (hash_password(new_pass_reset), selected_user)
+            )
+            conn.commit()
+
+            st.success("Password updated")
 # -----------------------------
 # SIDEBAR: ADD PATIENT
 # -----------------------------
