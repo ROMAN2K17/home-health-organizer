@@ -320,8 +320,7 @@ for i, p in patients.iterrows():
             st.session_state[f"open_{p['id']}"] = not st.session_state[f"open_{p['id']}"]
             safe_rerun()
 
-        # Card display
-st.markdown(f"""
+        st.markdown(f"""
 <div style="
     padding:12px;
     background:{color};
@@ -334,6 +333,7 @@ st.markdown(f"""
     <div style="margin-top:6px;font-size:13px;">
         <b>MRN:</b> {p['mrn']}<br>
         <b>City:</b> {p['city']}<br>
+        <b>Insurance:</b> {p['insurance']}<br>
         <b>Last Update:</b> {p['last_updated']}
     </div>
 </div>
