@@ -333,13 +333,14 @@ if selected_id:
         patient = patient_rows.iloc[0]
 
         st.markdown("---")
-st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
+        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
 
-info1, info2, info3 = st.columns(3)
+        # Patient info columns
+        info1, info2, info3 = st.columns(3)
 
-with info1:
-    st.info(
-        f"""
+        with info1:
+            st.info(
+                f"""
 **Patient Information**
 
 Name: {patient['first_name']} {patient['last_name']}
@@ -348,50 +349,57 @@ MRN: {patient['mrn']}
 
 City: {patient['city']}
 """
-    )
+            )
 
-with info2:
-    st.success(
-        f"""
+        with info2:
+            st.success(
+                f"""
 **Insurance Information**
 
 Insurance: {patient['insurance']}
 """
-    )
+            )
 
-with info3:
-    st.warning(
-        f"""
+        with info3:
+            st.warning(
+                f"""
 **Status**
 
 Last Updated:
 {patient['last_updated']}
 """
-    )
+            )
 
+        # Load notes
         notes = load_notes(selected_id)
 
         for _, n in notes.iterrows():
             st.write(f"{n['created_at']} — {n['note']}")
 
+        # Add new note
         new_note = st.text_area("Add note")
 
         if st.button("➕ Add Note"):
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO notes (patient_id, note, created_at)
                 VALUES (?,?,?)
-            """, (selected_id, new_note, now))
+                """,
+                (selected_id, new_note, now)
+            )
 
-            c.execute("""
+            c.execute(
+                """
                 UPDATE patients SET last_updated=? WHERE id=?
-            """, (now, selected_id))
+                """,
+                (now, selected_id)
+            )
 
             conn.commit()
             log_action(selected_id, "ADD_NOTE", new_note)
             safe_rerun()
-
 # -----------------------------
 # AUDIT LOG
 # -----------------------------
