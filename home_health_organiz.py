@@ -219,12 +219,13 @@ if user["role"] == "admin":
         st.success("Password updated")
 
 
+
 # -----------------------------
-# ADD PATIENT
+# SIDEBAR: ADD PATIENT
 # -----------------------------
 st.sidebar.header("➕ Add New Patient")
 
-with st.sidebar.form("add_patient", clear_on_submit=True):
+with st.sidebar.form("add_patient_form", clear_on_submit=True):
 
     first_name = st.text_input("First Name")
     last_name = st.text_input("Last Name")
@@ -234,7 +235,7 @@ with st.sidebar.form("add_patient", clear_on_submit=True):
 
     submitted = st.form_submit_button("Add Patient")
 
-    if submitted:
+    if submitted and first_name and last_name:
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -252,102 +253,26 @@ with st.sidebar.form("add_patient", clear_on_submit=True):
 
 
 # -----------------------------
-# SELECTED PATIENT PANEL
-# -----------------------------
-selected_id = st.session_state.get("selected_patient_id")
-
-if selected_id:
-
-    patient_df = pd.read_sql_query(
-        "SELECT * FROM patients WHERE id=?",
-        conn,
-        params=(selected_id,)
-    )
-
-    if not patient_df.empty:
-        patient = patient_df.iloc[0]
-
-        st.markdown("---")
-        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.info(f"""
-**Patient Info**
-
-Name: {patient['first_name']} {patient['last_name']}
-MRN: {patient['mrn']}
-City: {patient['city']}
-""")
-
-        with col2:
-            st.success(f"""
-**Insurance**
-
-{patient['insurance']}
-""")
-
-        with col3:
-            st.warning(f"""
-**Status**
-
-Last Updated: {patient['last_updated']}
-""")
-
-        # -----------------------------
-        # NOTES
-        # -----------------------------
-        st.markdown("### 📝 Notes")
-
-        notes = load_notes(selected_id)
-
-        for _, n in notes.iterrows():
-            st.write(f"{n['created_at']} — {n['note']}")
-
-        with st.form("note_form", clear_on_submit=True):
-
-            new_note = st.text_area("Add note")
-
-            submitted = st.form_submit_button("➕ Add Note")
-
-            if submitted and new_note.strip():
-
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                c.execute(
-                    "INSERT INTO notes (patient_id, note, created_at) VALUES (?,?,?)",
-                    (selected_id, new_note, now)
-                )
-
-                c.execute(
-                    "UPDATE patients SET last_updated=? WHERE id=?",
-                    (now, selected_id)
-                )
-
-                conn.commit()
-
-                log_action(selected_id, "ADD_NOTE", new_note)
-
-                safe_rerun()
-
-
-# -----------------------------
-# ADMIN: CREATE USER
+# SIDEBAR: ADMIN PANEL
 # -----------------------------
 if user["role"] == "admin":
 
-    st.sidebar.markdown("### 👑 Create User")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("👑 Admin Panel")
 
-    with st.sidebar.form("create_user", clear_on_submit=True):
+    # -----------------------------
+    # CREATE USER FORM
+    # -----------------------------
+    with st.sidebar.form("create_user_form", clear_on_submit=True):
 
-        new_user = st.text_input("New Username")
-        new_pass = st.text_input("New Password", type="password")
-        role = st.selectbox("Role", ["user", "admin"])
+        new_user = st.text_input("New Username", key="new_user_input")
+        new_pass = st.text_input("New Password", type="password", key="new_pass_input")
+        role = st.selectbox("Role", ["user", "admin"], key="role_select")
 
         submitted = st.form_submit_button("Create User")
 
-        if submitted:
+        if submitted and new_user and new_pass:
+
             try:
                 c.execute(
                     "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
@@ -360,6 +285,36 @@ if user["role"] == "admin":
             except sqlite3.IntegrityError:
                 st.error("Username already exists")
 
+    # -----------------------------
+    # RESET PASSWORD SECTION
+    # -----------------------------
+    st.sidebar.markdown("### 🔄 Reset Password")
+
+    users_df = pd.read_sql_query("SELECT username FROM users", conn)
+
+    selected_user = st.selectbox(
+        "User",
+        users_df["username"].tolist(),
+        key="reset_user_select"
+    )
+
+    new_pass_reset = st.text_input(
+        "New Password",
+        type="password",
+        key="reset_password_input"
+    )
+
+    if st.button("Reset Password", key="reset_password_btn"):
+
+        if new_pass_reset:
+
+            c.execute(
+                "UPDATE users SET password=? WHERE username=?",
+                (hash_password(new_pass_reset), selected_user)
+            )
+            conn.commit()
+
+            st.success("Password updated")
 # -----------------------------
 # PATIENT LIST
 # -----------------------------
