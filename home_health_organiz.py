@@ -464,9 +464,22 @@ Last Updated: {patient['last_updated']}
 st.markdown("---")
 st.subheader("📜 Recent Activity")
 
-audit_df = pd.read_sql_query(
-    "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 50",
-    conn
-)
+# Join patients to get names instead of IDs
+audit_df = pd.read_sql_query("""
+    SELECT 
+        a.id,
+        COALESCE(p.first_name || ' ' || p.last_name, 'Unknown Patient') AS patient_name,
+        a.action,
+        a.details,
+        a.created_at
+    FROM audit_log a
+    LEFT JOIN patients p ON a.patient_id = p.id
+    ORDER BY a.created_at DESC
+    LIMIT 50
+""", conn)
 
-st.dataframe(audit_df, use_container_width=True)
+# Rename columns for nicer display
+audit_df = audit_df.rename(columns={"patient_name": "Patient", "action": "Action", "details": "Details", "created_at": "Timestamp"})
+
+# Display the audit log
+st.dataframe(audit_df[["Patient", "Action", "Details", "Timestamp"]], use_container_width=True)
