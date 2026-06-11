@@ -296,12 +296,46 @@ for i, p in patients.iterrows():
         """, unsafe_allow_html=True)
 
         if user["role"] == "admin":
-            if st.button(f"Archive {p['id']}", key=f"a_{p['id']}"):
-                c.execute("UPDATE patients SET archived=1 WHERE id=?", (p["id"],))
+
+    archive_key = f"confirm_archive_{p['id']}"
+
+    if archive_key not in st.session_state:
+        st.session_state[archive_key] = False
+
+    if not st.session_state[archive_key]:
+        if st.button(f"Archive {p['id']}", key=f"a_{p['id']}"):
+            st.session_state[archive_key] = True
+            safe_rerun()
+
+    else:
+        st.warning(
+            f"Are you sure you want to archive "
+            f"{p['first_name']} {p['last_name']}?"
+        )
+
+        yes_col, no_col = st.columns(2)
+
+        with yes_col:
+            if st.button("Yes", key=f"yes_{p['id']}"):
+                c.execute(
+                    "UPDATE patients SET archived=1 WHERE id=?",
+                    (p["id"],)
+                )
                 conn.commit()
-                log_action(p["id"], "ARCHIVE", p["first_name"])
+
+                log_action(
+                    p["id"],
+                    "ARCHIVE",
+                    f"{p['first_name']} {p['last_name']}"
+                )
+
+                st.session_state[archive_key] = False
                 safe_rerun()
 
+        with no_col:
+            if st.button("No", key=f"no_{p['id']}"):
+                st.session_state[archive_key] = False
+                safe_rerun()
 # -----------------------------
 # SELECTED PATIENT
 # -----------------------------
@@ -314,7 +348,41 @@ if selected_id:
         patient = patient_rows.iloc[0]
 
         st.markdown("---")
-        st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
+st.subheader(f"📋 {patient['first_name']} {patient['last_name']}")
+
+info1, info2, info3 = st.columns(3)
+
+with info1:
+    st.info(
+        f"""
+**Patient Information**
+
+Name: {patient['first_name']} {patient['last_name']}
+
+MRN: {patient['mrn']}
+
+City: {patient['city']}
+"""
+    )
+
+with info2:
+    st.success(
+        f"""
+**Insurance Information**
+
+Insurance: {patient['insurance']}
+"""
+    )
+
+with info3:
+    st.warning(
+        f"""
+**Status**
+
+Last Updated:
+{patient['last_updated']}
+"""
+    )
 
         notes = load_notes(selected_id)
 
