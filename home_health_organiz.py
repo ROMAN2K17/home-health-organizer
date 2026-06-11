@@ -273,12 +273,14 @@ col3.metric("Up to date", len(patients) - overdue_count)
 st.markdown("---")
 
 # -----------------------------
-# PATIENT CARDS
+# PATIENT CARDS (clickable names + archive confirmation)
 # -----------------------------
-# ensure archive confirmation state exists
+
+# Ensure archive confirmation session state exists
 if "archive_confirm" not in st.session_state:
     st.session_state["archive_confirm"] = None
 
+# Make 3 columns for cards
 cols = st.columns(3)
 
 for i, p in patients.iterrows():
@@ -286,22 +288,25 @@ for i, p in patients.iterrows():
     color = "#ffd6d6" if overdue else "#d9f7d9"
 
     with cols[i % 3]:
-        # Patient select button
-        if st.button(f"Select {p['first_name']} {p['last_name']}", key=f"s_{p['id']}"):
+        # -----------------------------
+        # Clickable patient name
+        # -----------------------------
+        if st.button(f"{p['first_name']} {p['last_name']}", key=f"s_{p['id']}"):
             st.session_state["selected_patient_id"] = p["id"]
             safe_rerun()
 
-        # Patient card info
+        # Patient card info (other details)
         st.markdown(f"""
-        <div style="padding:10px;background:{color};border-radius:10px;margin-bottom:10px">
-            <b>{p['first_name']} {p['last_name']}</b><br>
+        <div style="padding:10px;background:{color};border-radius:10px;margin-top:5px;margin-bottom:10px">
             MRN: {p['mrn']}<br>
             City: {p['city']}<br>
             Last Update: {p['last_updated']}
         </div>
         """, unsafe_allow_html=True)
 
-        # Archive button with confirmation
+        # -----------------------------
+        # Archive button with confirmation (admin only)
+        # -----------------------------
         if user["role"] == "admin":
             # Check if this patient is waiting for confirmation
             if st.session_state.get("archive_confirm") == p["id"]:
@@ -321,7 +326,7 @@ for i, p in patients.iterrows():
                         st.session_state["archive_confirm"] = None
                         safe_rerun()
             else:
-                if st.button(f"Archive {p['id']}", key=f"a_{p['id']}"):
+                if st.button(f"Archive", key=f"a_{p['id']}"):
                     st.session_state["archive_confirm"] = p["id"]
                     safe_rerun()
 # -----------------------------
