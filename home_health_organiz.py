@@ -398,38 +398,42 @@ for i, p in patients.iterrows():
                     safe_rerun()
 
             # -----------------------------
-            # Home Health Placement (Accepted Only)
-            # -----------------------------
-            st.markdown("### 🏥 Home Health Placement (Accepted Only)")
+# Home Health Placement (Accepted Only)
+# -----------------------------
+st.markdown("### 🏥 Home Health Placement (Accepted Only)")
 
-            with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
-                hh_name = st.text_input("Accepted Home Health Agency")
-                submitted = st.form_submit_button("Record Acceptance")
+with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
+    hh_name = st.text_input("Accepted Home Health Agency")
 
-                if submitted and hh_name.strip():
-                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    submitted = st.form_submit_button("Record Acceptance")
 
-                    c.execute("""
-                        INSERT INTO home_health_referrals
-                        (patient_id, home_health_name, insurance, created_at)
-                        VALUES (?,?,?,?)
-                    """, (
-                        p["id"],
-                        hh_name.strip(),
-                        p["insurance"],
-                        now
-                    ))
+    if submitted and hh_name.strip():
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    conn.commit()
+        # CLEAN INSERT (NO EXTRA PARENTHESES)
+        c.execute(
+            """
+            INSERT INTO home_health_referrals
+            (patient_id, home_health_name, insurance, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                p["id"],
+                hh_name.strip(),
+                p["insurance"],
+                now
+            )
+        )
 
-                    log_action(
-                        p["id"],
-                        "HOME_HEALTH_ACCEPTED",
-                        f"{hh_name.strip()} | Insurance: {p['insurance']}"
-                    )
+        conn.commit()
 
-                    safe_rerun()
+        log_action(
+            p["id"],
+            "HOME_HEALTH_ACCEPTED",
+            f"{hh_name.strip()} | Insurance: {p['insurance']}"
+        )
 
+        safe_rerun()
             # Display acceptance history
             history = load_home_health_history(p["id"])
             for _, row in history.iterrows():
