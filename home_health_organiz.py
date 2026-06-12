@@ -315,7 +315,7 @@ col3.metric("Up to date", len(patients) - overdue_count)
 st.markdown("---")
 
 # -----------------------------
-# PATIENT CARDS (FINAL CLEAN VERSION)
+# PATIENT CARDS (CLEAN FINAL VERSION)
 # -----------------------------
 
 if "archive_confirm" not in st.session_state:
@@ -329,7 +329,7 @@ for i, p in patients.iterrows():
 
     with cols[i % 3]:
 
-        # Initialize toggle
+        # Toggle state init
         if f"open_{p['id']}" not in st.session_state:
             st.session_state[f"open_{p['id']}"] = False
 
@@ -362,14 +362,14 @@ for i, p in patients.iterrows():
         </div>
         """, unsafe_allow_html=True)
 
-        # -----------------------------
-        # Expanded view
-        # -----------------------------
+        # =============================
+        # EXPANDED VIEW
+        # =============================
         if st.session_state[f"open_{p['id']}"]:
 
-            # -----------------------------
-            # Notes
-            # -----------------------------
+            # -------------------------
+            # NOTES
+            # -------------------------
             st.markdown("### 📝 Notes")
 
             notes = load_notes(p["id"])
@@ -397,53 +397,62 @@ for i, p in patients.iterrows():
                     log_action(p["id"], "ADD_NOTE", new_note)
                     safe_rerun()
 
-            # -----------------------------
-# Home Health Placement (Accepted Only)
-# -----------------------------
-st.markdown("### 🏥 Home Health Placement (Accepted Only)")
+            # -------------------------
+            # HOME HEALTH (ACCEPTED ONLY)
+            # -------------------------
+            st.markdown("### 🏥 Home Health Placement (Accepted Only)")
 
-with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
-    hh_name = st.text_input("Accepted Home Health Agency")
+            with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
+                hh_name = st.text_input("Accepted Home Health Agency")
+                submitted = st.form_submit_button("Record Acceptance")
 
-    submitted = st.form_submit_button("Record Acceptance")
+                if submitted and hh_name.strip():
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if submitted and hh_name.strip():
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    c.execute(
+                        """
+                        INSERT INTO home_health_referrals
+                        (patient_id, home_health_name, insurance, created_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            p["id"],
+                            hh_name.strip(),
+                            p["insurance"],
+                            now
+                        )
+                    )
 
-        # CLEAN INSERT (NO EXTRA PARENTHESES)
-        c.execute(
-            """
-            INSERT INTO home_health_referrals
-            (patient_id, home_health_name, insurance, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                p["id"],
-                hh_name.strip(),
-                p["insurance"],
-                now
-            )
-        )
+                    conn.commit()
 
-        conn.commit()
+                    log_action(
+                        p["id"],
+                        "HOME_HEALTH_ACCEPTED",
+                        f"{hh_name.strip()} | Insurance: {p['insurance']}"
+                    )
 
-        log_action(
-            p["id"],
-            "HOME_HEALTH_ACCEPTED",
-            f"{hh_name.strip()} | Insurance: {p['insurance']}"
-        )
+                    safe_rerun()
 
-        safe_rerun()
-            # Display acceptance history
+            # -------------------------
+            # HOME HEALTH HISTORY
+            # -------------------------
             history = load_home_health_history(p["id"])
-            for _, row in history.iterrows():
-                st.info(
-                    f"{row['home_health_name']} | {row['insurance']} | {row['created_at']}"
-                )
 
-        # -----------------------------
-        # Archive (admin only)
-        # -----------------------------
+            if not history.empty:
+                st.markdown("#### 📋 Acceptance History")
+
+                for _, row in history.iterrows():
+                    st.info(
+                        f"{row['home_health_name']} | "
+                        f"{row['insurance']} | "
+                        f"{row['created_at']}"
+                    )
+            else:
+                st.caption("No Home Health acceptance recorded yet.")
+
+        # =============================
+        # ARCHIVE (ADMIN ONLY)
+        # =============================
         if user["role"] == "admin":
 
             if st.session_state.get("archive_confirm") == p["id"]:
