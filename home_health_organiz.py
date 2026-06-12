@@ -295,7 +295,6 @@ st.markdown("---")
 # PATIENT CARDS (INTEGRATED VERSION)
 # -----------------------------
 
-# Ensure session state exists
 if "archive_confirm" not in st.session_state:
     st.session_state["archive_confirm"] = None
 
@@ -320,33 +319,37 @@ for i, p in patients.iterrows():
             st.session_state[f"open_{p['id']}"] = not st.session_state[f"open_{p['id']}"]
             safe_rerun()
 
+        # Card display
         st.markdown(f"""
-<div style="
-    padding:12px;
-    background:{color};
-    border-radius:12px;
-    border:1px solid #ddd;
-">
-    <div style="font-size:18px;font-weight:700;">
-        {p['first_name']} {p['last_name']}
-    </div>
-    <div style="margin-top:6px;font-size:13px;">
-        <b>MRN:</b> {p['mrn']}<br>
-        <b>City:</b> {p['city']}<br>
-        <b>Insurance:</b> {p['insurance']}<br>
-        <b>Last Update:</b> {p['last_updated']}
-    </div>
-</div>
-""", unsafe_allow_html=True)
+        <div style="
+            padding:12px;
+            background:{color};
+            border-radius:12px;
+            border:1px solid #ddd;
+        ">
+            <div style="font-size:18px;font-weight:700;">
+                {p['first_name']} {p['last_name']}
+            </div>
+            <div style="margin-top:6px;font-size:13px;">
+                <b>MRN:</b> {p['mrn']}<br>
+                <b>City:</b> {p['city']}<br>
+                <b>Insurance:</b> {p['insurance']}<br>
+                <b>Last Update:</b> {p['last_updated']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
         # Expanded view
         if st.session_state[f"open_{p['id']}"]:
-            st.markdown("### 📝 Notes")
 
+            # -----------------------------
+            # Notes
+            # -----------------------------
+            st.markdown("### 📝 Notes")
             notes = load_notes(p["id"])
             for _, n in notes.iterrows():
                 st.write(f"{n['created_at']} — {n['note']}")
 
-            # Add note form
             with st.form(f"note_form_{p['id']}", clear_on_submit=True):
                 new_note = st.text_area("Add note")
                 submitted = st.form_submit_button("➕ Add Note")
@@ -364,7 +367,49 @@ for i, p in patients.iterrows():
                     log_action(p["id"], "ADD_NOTE", new_note)
                     safe_rerun()
 
+            # -----------------------------
+            # Home Health Referrals
+            # -----------------------------
+            st.markdown("### 🏥 Home Health Referrals")
+
+            with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
+                hh_name = st.text_input("Home Health Agency")
+                accepted = st.checkbox("Accepted")
+                if st.form_submit_button("Save Referral"):
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    c.execute("""
+                        INSERT INTO home_health_referrals
+                        (patient_id, home_health_name, insurance, accepted, created_at)
+                        VALUES (?,?,?,?,?)
+                    """, (
+                        p["id"],
+                        hh_name,
+                        p["insurance"],
+                        1 if accepted else 0,
+                        now
+                    ))
+                    conn.commit()
+                    log_action(
+                        p["id"],
+                        "HOME_HEALTH_REFERRAL",
+                        f"{hh_name} | Insurance: {p['insurance']} | Accepted: {accepted}"
+                    )
+                    safe_rerun()
+
+            # Display referral history
+            history = load_home_health_history(p["id"])
+            for _, row in history.iterrows():
+                status = "✅ Accepted" if row["accepted"] else "⏳ Pending"
+                st.info(
+                    f"{row['home_health_name']} | "
+                    f"{row['insurance']} | "
+                    f"{status} | "
+                    f"{row['created_at']}"
+                )
+
+        # -----------------------------
         # Archive (admin only)
+        # -----------------------------
         if user["role"] == "admin":
             if st.session_state.get("archive_confirm") == p["id"]:
                 st.warning(f"Archive {p['first_name']} {p['last_name']}?")
