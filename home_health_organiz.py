@@ -315,7 +315,7 @@ col3.metric("Up to date", len(patients) - overdue_count)
 st.markdown("---")
 
 # -----------------------------
-# PATIENT CARDS (CLEAN FINAL VERSION)
+# PATIENT CARDS (UPDATED VERSION)
 # -----------------------------
 
 if "archive_confirm" not in st.session_state:
@@ -366,7 +366,7 @@ for i, p in patients.iterrows():
         if st.session_state[f"open_{p['id']}"]:
 
             # -----------------------------
-            # NOTES
+            # Notes Section
             # -----------------------------
             st.markdown("### 📝 Notes")
             notes = load_notes(p["id"])
@@ -391,15 +391,17 @@ for i, p in patients.iterrows():
                     safe_rerun()
 
             # -----------------------------
-            # HOME HEALTH ACCEPTED
+            # Home Health Accepted Section
             # -----------------------------
             st.markdown("### 🏥 Home Health Accepted")
+
             with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
                 hh_name = st.text_input("Accepted Home Health Agency")
                 submitted = st.form_submit_button("Record Acceptance")
 
                 if submitted and hh_name.strip():
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                     try:
                         c.execute(
                             """
@@ -407,48 +409,62 @@ for i, p in patients.iterrows():
                             (patient_id, home_health_name, insurance, created_at)
                             VALUES (?, ?, ?, ?)
                             """,
-                            (p["id"], hh_name.strip(), p["insurance"], now)
+                            (
+                                p["id"],
+                                hh_name.strip(),
+                                p["insurance"],
+                                now
+                            )
                         )
+
                         conn.commit()
+
                         log_action(
                             p["id"],
                             "HOME_HEALTH_ACCEPTED",
                             f"{hh_name.strip()} | Insurance: {p['insurance']}"
                         )
+
                         safe_rerun()
+
                     except Exception as e:
                         st.error(f"Database error: {e}")
 
             # Display referral history
-            history = load_home_health_history(p["id"])
-            for _, row in history.iterrows():
-                st.info(f"{row['home_health_name']} | {row['insurance']} | {row['created_at']}")
+            try:
+                history = load_home_health_history(p["id"])
+                for _, row in history.iterrows():
+                    st.info(
+                        f"{row['home_health_name']} | {row['insurance']} | {row['created_at']}"
+                    )
+            except Exception as e:
+                st.warning("No referral history yet.")
 
-            # -----------------------------
-            # ARCHIVE BUTTON (ADMIN ONLY)
-            # -----------------------------
-            if user["role"] == "admin":
-                if st.session_state.get("archive_confirm") == p["id"]:
-                    st.warning(f"Archive {p['first_name']} {p['last_name']}?")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("Yes", key=f"archive_yes_{p['id']}_{i}"):
-                            c.execute(
-                                "UPDATE patients SET archived=1 WHERE id=?",
-                                (p["id"],)
-                            )
-                            conn.commit()
-                            log_action(p["id"], "ARCHIVE", f"Archived {p['first_name']} {p['last_name']}")
-                            st.session_state["archive_confirm"] = None
-                            safe_rerun()
-                    with c2:
-                        if st.button("No", key=f"archive_no_{p['id']}_{i}"):
-                            st.session_state["archive_confirm"] = None
-                            safe_rerun()
-                else:
-                    if st.button("Archive", key=f"archive_btn_{p['id']}_{i}"):
-                        st.session_state["archive_confirm"] = p["id"]
+        # -----------------------------
+        # Admin Archive Buttons
+        # -----------------------------
+        if user["role"] == "admin":
+            if st.session_state.get("archive_confirm") == p["id"]:
+                st.warning(f"Archive {p['first_name']} {p['last_name']}?")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Yes", key=f"archive_yes_{p['id']}_{i}"):
+                        c.execute(
+                            "UPDATE patients SET archived=1 WHERE id=?",
+                            (p["id"],)
+                        )
+                        conn.commit()
+                        log_action(p["id"], "ARCHIVE", "archived")
+                        st.session_state["archive_confirm"] = None
                         safe_rerun()
+                with c2:
+                    if st.button("No", key=f"archive_no_{p['id']}_{i}"):
+                        st.session_state["archive_confirm"] = None
+                        safe_rerun()
+            else:
+                if st.button("Archive", key=f"archive_btn_{p['id']}_{i}"):
+                    st.session_state["archive_confirm"] = p["id"]
+                    safe_rerun()
 # -----------------------------
 # SELECTED PATIENT PANEL
 # -----------------------------
