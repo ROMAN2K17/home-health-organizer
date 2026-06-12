@@ -426,31 +426,7 @@ for i, p in patients.iterrows():
                 if st.button("Archive", key=f"archive_btn_{p['id']}_{i}"):
                     st.session_state["archive_confirm"] = p["id"]
                     safe_rerun()
-        # -----------------------------
-        # Archive (admin only)
-        # -----------------------------
-        if user["role"] == "admin":
-            if st.session_state.get("archive_confirm") == p["id"]:
-                st.warning(f"Archive {p['first_name']} {p['last_name']}?")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("Yes", key=f"archive_yes_{p['id']}_{i}"):
-                        c.execute(
-                            "UPDATE patients SET archived=1 WHERE id=?",
-                            (p["id"],)
-                        )
-                        conn.commit()
-                        log_action(p["id"], "ARCHIVE", "archived")
-                        st.session_state["archive_confirm"] = None
-                        safe_rerun()
-                with c2:
-                    if st.button("No", key=f"archive_no_{p['id']}_{i}"):
-                        st.session_state["archive_confirm"] = None
-                        safe_rerun()
-            else:
-                if st.button("Archive", key=f"archive_btn_{p['id']}_{i}"):
-                    st.session_state["archive_confirm"] = p["id"]
-                    safe_rerun()
+
 # -----------------------------
 # SELECTED PATIENT PANEL
 # -----------------------------
