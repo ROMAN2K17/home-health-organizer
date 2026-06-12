@@ -137,6 +137,29 @@ def load_notes(patient_id):
         params=(patient_id,)
     )
 
+def load_home_health_history(patient_id):
+    try:
+        return pd.read_sql_query(
+            """
+            SELECT *
+            FROM home_health_referrals
+            WHERE patient_id=?
+            ORDER BY created_at DESC
+            """,
+            conn,
+            params=(patient_id,)
+        )
+    except Exception:
+        return pd.DataFrame(
+            columns=[
+                "id",
+                "patient_id",
+                "home_health_name",
+                "insurance",
+                "created_at"
+            ]
+        )
+
 def get_overdue_count(patients_df):
     return sum(is_overdue(p) for p in patients_df["last_updated"])
 
