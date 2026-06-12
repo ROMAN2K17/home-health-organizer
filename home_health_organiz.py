@@ -390,39 +390,48 @@ for i, p in patients.iterrows():
                     log_action(p["id"], "ADD_NOTE", new_note)
                     safe_rerun()
 
-            # -----------------------------
-            # Home Health Referrals
-            # -----------------------------
-            st.markdown("### 🏥 Home Health Referrals")
+# -----------------------------
+# Home Health Placement (Accepted Only)
+# -----------------------------
+st.markdown("### 🏥 Home Health Placement (Accepted Only)")
 
-            with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
-                hh_name = st.text_input("Home Health Agency")
-                if st.form_submit_button("Save Referral"):
-                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    c.execute("""
-                        INSERT INTO home_health_referrals
-                        (patient_id, home_health_name, insurance, created_at)
-                        VALUES (?,?,?,?)
-                    """, (
-                        p["id"],
-                        hh_name,
-                        p["insurance"],
-                        now
-                    ))
-                    conn.commit()
-                    log_action(
-                        p["id"],
-                        "HOME_HEALTH_REFERRAL",
-                        f"{hh_name} | Insurance: {p['insurance']}"
-                    )
-                    safe_rerun()
+with st.form(f"hh_form_{p['id']}", clear_on_submit=True):
+    hh_name = st.text_input("Accepted Home Health Agency")
 
-            # Display referral history
-            history = load_home_health_history(p["id"])
-            for _, row in history.iterrows():
-                st.info(
-                    f"{row['home_health_name']} | {row['insurance']} | {row['created_at']}"
-                )
+    submitted = st.form_submit_button("Record Acceptance")
+
+    if submitted and hh_name.strip():
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Insert only accepted Home Health agency
+        c.execute("""
+            INSERT INTO home_health_referrals
+            (patient_id, home_health_name, insurance, created_at)
+            VALUES (?,?,?,?)
+        """, (
+            p["id"],
+            hh_name.strip(),
+            p["insurance"],
+            now
+        ))
+
+        conn.commit()
+
+        # Log the action with the accepted agency
+        log_action(
+            p["id"],
+            "HOME_HEALTH_ACCEPTED",
+            f"{hh_name.strip()} | Insurance: {p['insurance']}"
+        )
+
+        safe_rerun()
+
+# Display acceptance history
+history = load_home_health_history(p["id"])
+for _, row in history.iterrows():
+    st.info(
+        f"{row['home_health_name']} | {row['insurance']} | {row['created_at']}"
+    )
 
         # -----------------------------
         # Archive (admin only)
