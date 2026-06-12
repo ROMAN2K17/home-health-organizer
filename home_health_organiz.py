@@ -5,6 +5,85 @@ from datetime import datetime, timedelta
 import hashlib
 
 # -----------------------------
+# DATABASE SETUP
+# -----------------------------
+import sqlite3
+from datetime import datetime
+import hashlib
+
+conn = sqlite3.connect("patients.db", check_same_thread=False)
+c = conn.cursor()
+
+# Patients table
+c.execute("""
+CREATE TABLE IF NOT EXISTS patients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name TEXT,
+    last_name TEXT,
+    mrn TEXT,
+    insurance TEXT,
+    city TEXT,
+    home_health INTEGER,
+    last_updated TEXT,
+    archived INTEGER DEFAULT 0
+)
+""")
+
+# Notes table
+c.execute("""
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id INTEGER,
+    note TEXT,
+    created_at TEXT
+)
+""")
+
+# Audit log table
+c.execute("""
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id INTEGER,
+    action TEXT,
+    details TEXT,
+    created_at TEXT
+)
+""")
+
+# Users table
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    role TEXT DEFAULT 'user'
+)
+""")
+
+# -----------------------------
+# Home Health Referrals Table
+# -----------------------------
+c.execute("""
+CREATE TABLE IF NOT EXISTS home_health_referrals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id INTEGER,
+    home_health_name TEXT,
+    insurance TEXT,
+    created_at TEXT
+)
+""")
+
+conn.commit()
+
+# -----------------------------
+# SECURITY HELPERS
+# -----------------------------
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_password(password, hashed):
+    return hashlib.sha256(password.encode()).hexdigest() == hashed
+# -----------------------------
 # Safe rerun helper
 # -----------------------------
 def safe_rerun():
