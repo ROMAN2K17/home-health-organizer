@@ -157,7 +157,18 @@ def hash_password(password):
 
 def check_password(password, hashed):
     return hashlib.sha256(password.encode()).hexdigest() == hashed
+def reset_users():
+    c.execute("DELETE FROM users")
+    conn.commit()
 
+    # recreate admin
+    c.execute(
+        "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+        ("admin", hash_password("admin123"), "admin")
+    )
+    conn.commit()
+
+reset_users()
 def create_default_admin():
     c.execute("SELECT * FROM users WHERE username=?", ("admin",))
     if not c.fetchone():
